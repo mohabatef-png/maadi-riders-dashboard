@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Maadi Captain Riders — Live Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+
+    * { box-sizing: border-box; margin: 0; padding: 0; transition: background .25s, color .2s, border-color .2s; }
+    body {
+      font-family: 'Inter', 'Segoe UI', sans-serif; background: #09090b; color: #e4e4e7;
+      min-height: 100vh; position: relative; overflow-x: hidden;
+    }
+
+    /* ── 4D background grid ── */
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(255,107,53,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,107,53,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridMove 20s linear infinite;
+    }
+    @keyframes gridMove { 0%{background-position:0 0} 100%{background-position:40px 40px} }
+    body > * { position: relative; z-index: 1; }
+
+    /* ── 4D glow on stat numbers ── */
+    .stat-value[style*="#4ade80"] { text-shadow: 0 0 20px rgba(74,222,128,.5); }
+    .stat-value[style*="#f87171"] { text-shadow: 0 0 20px rgba(248,113,113,.5); }
+    .stat-value[style*="#fbbf24"] { text-shadow: 0 0 20px rgba(251,191,36,.5); }
+    .stat-value[style*="#c4b5fd"] { text-shadow: 0 0 20px rgba(196,181,253,.4); }
+    .stat-value[style*="#7dd3fc"] { text-shadow: 0 0 20px rgba(125,211,252,.4); }
+
+    /* ── Light mode ── */
+    body.light { background: #f4f4f5; color: #18181b; }
+    body.light::before {
+      background-image:
+        linear-gradient(rgba(255,107,53,.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,107,53,.06) 1px, transparent 1px);
+    }
+    body.light .header { background: #fff; border-bottom-color: #e4e4e7; box-shadow: 0 1px 8px rgba(0,0,0,.06); }
+    body.light .subtitle { color: #18181b; }
+    body.light .last-refresh { color: #a1a1aa; }
+    body.light .refresh-btn { background: #f4f4f5; color: #18181b; border-color: #d4d4d8; }
+    body.light .refresh-btn:hover { background: #e4e4e7; }
+    body.light .config-bar { background: #fafafa; border-bottom-color: #e4e4e7; }
+
+    /* ── View-only mode ── */
+    body.view-only .config-bar { display: none; }
+    body.view-only .refresh-btn { display: none; }
+    body.view-only .theme-btn  { display: none; }
+    body.view-only .view-badge { display: flex; }
+    .view-badge {
+      display: none; align-items: center; gap: 6px;
+      background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.25);
+      color: #4ade80; font-size: 11px; font-weight: 700; padding: 5px 14px;
+      border-radius: 99px; letter-spacing: 0.4px;
+    }
+    .view-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+    body.light .config-help { color: #a1a1aa; }
+    body.light .stats-bar { background: #fff; border-bottom-color: #e4e4e7; }
+    body.light .stat-card + .stat-card::before { background: #e4e4e7; }
+    body.light .stat-label { color: #a1a1aa; }
+    body.light .toolbar { background: #fafafa; border-bottom-color: #e4e4e7; }
+    body.light .toolbar-title { color: #71717a; }
+    body.light .search-box { background: #fff; border-color: #d4d4d8; color: #18181b; }
+    body.light .search-box::placeholder { color: #a1a1aa; }
+    body.light select { background: #fff; border-color: #d4d4d8; color: #3f3f46; }
+    body.light .filter-btn { background: #fff; border-color: #d4d4d8; color: #71717a; }
+    body.light .filter-btn:hover { border-color: #a1a1aa; color: #18181b; }
+    body.light .filter-btn.active { background: #ff6b35; border-color: #ff6b35; color: #fff; }
+    body.light thead th { background: #fafafa; color: #a1a1aa; border-bottom-color: #e4e4e7; }
+    body.light thead th:hover { color: #52525b; }
+    body.light tbody tr { border-bottom-color: #f4f4f5; }
+    body.light tbody tr:hover { background: #f4f4f5; }
+    body.light .rider-name { color: #18181b; }
+    body.light .rider-id { color: #a1a1aa; }
+    body.light .phone { color: #71717a; }
+    body.light .ok { color: #a1a1aa; }
+    body.light .zone-group-header td { background: #f4f4f5; border-top-color: #e4e4e7; }
+    body.light .stat-value[style*="#e4e4e7"] { color: #18181b !important; }
+
+    /* theme toggle */
+    .theme-btn {
+      background: #18181b; border: 1px solid #3f3f46; color: #e4e4e7;
+      width: 36px; height: 36px; border-radius: 8px; cursor: pointer;
+      font-size: 16px; display: flex; align-items: center; justify-content: center;
+      transition: all .2s; flex-shrink: 0;
+    }
+    .theme-btn:hover { background: #27272a; }
+    body.light .theme-btn { background: #fff; border-color: #d4d4d8; color: #18181b; }
+    body.light .theme-btn:hover { background: #f4f4f5; }
+
+    /* ── Header ── */
+    .header {
+      background: #09090b; border-bottom: 1px solid #27272a;
+      padding: 14px 28px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo-pill {
+      background: #ff6b35; color: #fff; font-weight: 800; font-size: 15px;
+      padding: 5px 18px; border-radius: 99px; letter-spacing: -0.3px;
+    }
+    .subtitle { font-size: 13px; font-weight: 600; color: #e4e4e7; margin-left: 12px; letter-spacing: -0.2px; }
+    .header-left { display: flex; align-items: center; }
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34,197,94,.2); animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 0 3px rgba(34,197,94,.2)} 50%{box-shadow:0 0 0 6px rgba(34,197,94,.05)} }
+    .last-refresh { font-size: 12px; color: #52525b; }
+    .refresh-btn {
+      background: #18181b; color: #e4e4e7; border: 1px solid #3f3f46;
+      padding: 7px 18px; border-radius: 6px; cursor: pointer; font-size: 12px;
+      font-weight: 600; font-family: inherit; transition: background .15s;
+    }
+    .refresh-btn:hover { background: #27272a; }
+
+    /* ── Config bar ── */
+    .config-bar {
+      background: #0c0c0e; border-bottom: 1px solid #27272a;
+      padding: 10px 28px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .config-bar label { font-size: 12px; color: #a1a1aa; white-space: nowrap; }
+    .config-bar input {
+      flex: 1; min-width: 280px; background: #18181b; border: 1px solid #3f3f46;
+      color: #e4e4e7; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-family: inherit;
+    }
+    .config-bar input:focus { outline: none; border-color: #ff6b35; }
+    .config-bar button {
+      background: #18181b; color: #a1a1aa; border: 1px solid #3f3f46;
+      padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit;
+    }
+    .config-bar button:hover { background: #27272a; color: #e4e4e7; }
+    .config-help { font-size: 11px; color: #52525b; width: 100%; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex; background: #09090b; border-bottom: 1px solid #27272a; padding: 0 28px;
+    }
+    .stat-card {
+      flex: 1; padding: 18px 0; text-align: center; position: relative;
+    }
+    .stat-card + .stat-card::before {
+      content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
+      width: 1px; background: #27272a;
+    }
+    .stat-value { font-size: 30px; font-weight: 800; color: #fff; letter-spacing: -1px; }
+    .stat-label { font-size: 10px; color: #52525b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      padding: 10px 28px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      background: #0c0c0e; border-bottom: 1px solid #27272a;
+    }
+    .toolbar-title { font-size: 12px; color: #71717a; font-weight: 600; flex: 1; }
+    .search-box {
+      background: #18181b; border: 1px solid #3f3f46; color: #e4e4e7;
+      padding: 7px 12px; border-radius: 6px; font-size: 12px; width: 220px; font-family: inherit;
+    }
+    .search-box:focus { outline: none; border-color: #ff6b35; }
+    .search-box::placeholder { color: #52525b; }
+    select {
+      background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa;
+      padding: 6px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      font-family: inherit; max-width: 100%;
+    }
+    select:focus { outline: none; border-color: #ff6b35; }
+    .filter-btn {
+      background: #18181b; border: 1px solid #3f3f46; color: #71717a;
+      padding: 5px 14px; border-radius: 99px; cursor: pointer; font-size: 11px;
+      font-weight: 600; font-family: inherit; transition: all .15s;
+    }
+    .filter-btn:hover { border-color: #71717a; color: #e4e4e7; }
+    .filter-btn.active { background: #ff6b35; border-color: #ff6b35; color: #fff; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; padding: 0 0 32px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left; padding: 11px 14px; font-size: 10px; font-weight: 700;
+      color: #52525b; text-transform: uppercase; letter-spacing: 0.7px;
+      border-bottom: 1px solid #27272a; white-space: nowrap; cursor: pointer;
+      user-select: none; background: #0c0c0e;
+    }
+    thead th:hover { color: #a1a1aa; }
+    thead th .sort-arrow { margin-left: 4px; opacity: 0.3; }
+    thead th.sorted .sort-arrow { opacity: 1; color: #ff6b35; }
+    tbody tr { border-bottom: 1px solid #18181b; transition: background .1s; }
+    tbody tr:hover { background: #18181b; }
+    tbody td { padding: 10px 14px; font-size: 12px; white-space: nowrap; }
+
+    .rider-name { font-weight: 600; color: #e4e4e7; }
+    .rider-id   { font-size: 10px; color: #52525b; margin-top: 2px; }
+    .phone      { color: #71717a; font-size: 11px; }
+
+    /* Status badges — translucent neon */
+    .status-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 10px;
+      border-radius: 99px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .status-Working { background: rgba(34,197,94,.15);  color: #4ade80; }
+    .status-Idle    { background: rgba(251,191,36,.15);  color: #fbbf24; }
+    .status-Break   { background: rgba(251,191,36,.15);  color: #fbbf24; }
+    .status-Offline { background: rgba(113,113,122,.12); color: #71717a; }
+    .status-Ending  { background: rgba(167,139,250,.15); color: #c4b5fd; }
+    .status-Late    { background: rgba(239,68,68,.15);   color: #f87171; }
+
+    .utr-high { color: #4ade80; font-weight: 700; }
+    .utr-mid  { color: #fbbf24; font-weight: 700; }
+    .utr-low  { color: #f87171; font-weight: 700; }
+    .late-flag { color: #f87171; font-weight: 600; }
+    .ok        { color: #52525b; }
+    .wallet-danger { color: #f87171; font-weight: 700; }
+
+    /* Empty state */
+    .empty-state { padding: 80px; text-align: center; color: #52525b; font-size: 13px; }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: .6; }
+
+    /* Zone / SP / Company badges */
+    .zone-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 5px; white-space: nowrap;
+    }
+    .zone-Maadi    { background: rgba(56,189,248,.15);  color: #7dd3fc; }
+    .zone-Mokattam { background: rgba(167,139,250,.15); color: #c4b5fd; }
+    .zone-unknown  { background: rgba(113,113,122,.12); color: #71717a; }
+
+    .sp-badge {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
+      border-radius: 5px; white-space: nowrap;
+    }
+    .sp-laselky  { background: rgba(34,197,94,.15);   color: #4ade80; }
+    .sp-meraag   { background: rgba(251,146,60,.15);   color: #fb923c; }
+    .sp-old      { background: rgba(167,139,250,.15);  color: #c4b5fd; }
+    .sp-maadi    { background: rgba(56,189,248,.15);   color: #7dd3fc; }
+    .sp-mafarik  { background: rgba(244,114,182,.15);  color: #f472b6; }
+    .sp-nafora   { background: rgba(163,230,53,.15);   color: #a3e635; }
+    .sp-na       { background: rgba(113,113,122,.12);  color: #71717a; }
+
+    .company-badge {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
+      border-radius: 5px; background: rgba(34,197,94,.12); color: #86efac; white-space: nowrap;
+    }
+    .zone-group-header td {
+      background: #18181b; color: #ff6b35; font-weight: 700; font-size: 11px;
+      padding: 9px 14px; border-top: 1px solid #27272a; letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    /* ── Mobile responsive ── */
+    @media (max-width: 640px) {
+      .header { padding: 10px 14px; gap: 6px; flex-wrap: wrap; }
+      .header-left { flex: 1; min-width: 0; }
+      .header-right { gap: 8px; }
+      .subtitle { font-size: 10px; margin-left: 8px; }
+      .last-refresh { display: none; }
+      .refresh-btn { padding: 6px 10px; font-size: 11px; }
+      .logo-pill { font-size: 12px; padding: 4px 12px; }
+
+      .config-bar { padding: 10px 14px; }
+
+      .stats-bar {
+        display: grid; grid-template-columns: repeat(4, 1fr);
+        padding: 0; overflow: hidden;
+      }
+      .stat-card { padding: 10px 2px; }
+      .stat-value { font-size: 18px; }
+      .stat-label { font-size: 7px; letter-spacing: 0.2px; }
+      .stat-card + .stat-card::before { top: 15%; bottom: 15%; }
+
+      /* toolbar: stack search full-width, dropdowns in 2-col grid */
+      .toolbar { padding: 8px 14px; gap: 6px; flex-wrap: wrap; }
+      .toolbar-title { width: 100%; flex: none; margin-bottom: 2px; }
+      .search-box { width: 100%; flex: none; }
+      #zoneFilter, #spFilter, #companyFilter, #groupBySelect {
+        flex: 1; min-width: calc(50% - 4px); font-size: 11px;
+      }
+
+      /* filter buttons: wrap and scroll */
+      .toolbar[style*="padding-top:6px"] {
+        overflow-x: auto; flex-wrap: nowrap; padding-bottom: 10px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .filter-btn { padding: 5px 10px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+
+      .table-wrap { padding: 0 0 24px; -webkit-overflow-scrolling: touch; }
+      tbody td { padding: 8px 8px; font-size: 11px; }
+      thead th { padding: 8px 8px; }
+    }
+
+    @media (max-width: 400px) {
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
+      .stat-card + .stat-card:nth-child(odd)::before { display: none; }
+      .subtitle { display: none; }
+    }
+
+    /* Zone manager modal */
+    #zoneModal .zone-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    #zoneModal .zone-row input { flex: 1; background: #09090b; border: 1px solid #3f3f46; color: #e4e4e7; padding: 7px 10px; border-radius: 6px; font-size: 12px; font-family: inherit; }
+    #zoneModal .zone-row input:focus { outline: none; border-color: #ff6b35; }
+    #zoneModal .zone-row button { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.2); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .zone-add-btn { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.2); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 4px; font-family: inherit; }
+  
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="logo-pill">talabat</span>
+    <span class="subtitle">Maadi Captain Riders — Live Tracker</span>
+  </div>
+  <div class="header-right">
+    <div class="live-dot"></div>
+    <div class="last-refresh" id="lastRefresh">Not loaded</div>
+    <span class="view-badge">VIEW ONLY</span>
+    <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark">🌙</button>
+  </div>
+</div>
+
+<!-- Config bar -->
+<div class="config-bar">
+  <label style="background:#ff6b35;color:#fff;font-weight:700;padding:8px 20px;border-radius:7px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+    📂 Upload CSV
+    <input type="file" id="csvFileInput" accept=".csv,.txt" style="display:none;" onchange="loadFromFile(event)"/>
+  </label>
+  <div class="config-help" id="lastUpdatedBar">Instant Data Scraper → Download CSV → Upload here</div>
+</div>
+
+<!-- Zone Manager Modal -->
+<div id="zoneModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1001;align-items:center;justify-content:center;">
+  <div style="background:#18181b;border:1px solid #3f3f46;border-radius:14px;padding:28px;width:90%;max-width:680px;max-height:80vh;overflow-y:auto;">
+    <h2 style="color:#e4e4e7;margin-bottom:6px;font-size:17px;font-weight:700;">🗺️ Zone / SP Manager</h2>
+    <p style="color:#71717a;font-size:12px;margin-bottom:16px;">Enter a zone name and the rider IDs that belong to it (comma-separated). Zones are saved in your browser.</p>
+    <div id="zoneRows"></div>
+    <button class="zone-add-btn" onclick="addZoneRow()">+ Add Zone</button>
+    <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+      <button onclick="closeZoneModal()" style="background:#27272a;color:#a1a1aa;border:1px solid #3f3f46;padding:9px 20px;border-radius:7px;cursor:pointer;font-family:inherit;">Cancel</button>
+      <button onclick="saveZones()" style="background:#ff6b35;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;">Save Zones</button>
+    </div>
+  </div>
+</div>
+
+<!-- Paste modal (hidden) -->
+<div id="pasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#18181b;border:1px solid #3f3f46;border-radius:14px;padding:28px;width:90%;max-width:700px;">
+    <h2 style="color:#e4e4e7;margin-bottom:12px;font-size:17px;font-weight:700;">📋 Paste Rooster CSV Data</h2>
+    <p style="color:#71717a;font-size:12px;margin-bottom:12px;">Open Rooster → Select all table rows → Copy → Paste here</p>
+    <textarea id="csvPasteArea" rows="12" placeholder="Paste your Rooster data here..."
+      style="width:100%;background:#09090b;border:1px solid #3f3f46;color:#e4e4e7;padding:12px;border-radius:8px;font-size:12px;font-family:monospace;resize:vertical;"></textarea>
+    <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+      <button onclick="closePasteModal()" style="background:#27272a;color:#a1a1aa;border:1px solid #3f3f46;padding:9px 20px;border-radius:7px;cursor:pointer;font-family:inherit;">Cancel</button>
+      <button onclick="loadFromPaste()" style="background:#ff6b35;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;">Load Data</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="stat-card"><div class="stat-value" id="statTotal" style="color:#e4e4e7">—</div><div class="stat-label">Total Riders</div></div>
+  <div class="stat-card"><div class="stat-value" id="statWorking" style="color:#4ade80">—</div><div class="stat-label">Working</div></div>
+  <div class="stat-card"><div class="stat-value" id="statIdle" style="color:#fbbf24">—</div><div class="stat-label">Break</div></div>
+  <div class="stat-card"><div class="stat-value" id="statLate" style="color:#f87171">—</div><div class="stat-label">Late</div></div>
+  <div class="stat-card"><div class="stat-value" id="statEnding" style="color:#c4b5fd">—</div><div class="stat-label">Ending</div></div>
+  <div class="stat-card"><div class="stat-value" id="statAvgUTR">—</div><div class="stat-label">Avg UTR</div></div>
+  <div class="stat-card"><div class="stat-value" id="statDeliveries" style="color:#7dd3fc">—</div><div class="stat-label">Total Deliveries</div></div>
+</div>
+
+<!-- Toolbar row 1: search + dropdowns -->
+<div class="toolbar" style="gap:8px;">
+  <div class="toolbar-title" id="riderCount">All Riders</div>
+  <input class="search-box" type="text" id="searchBox" placeholder="🔍  Search name, ID, phone…" oninput="applyFilters()"/>
+  <select id="zoneFilter" onchange="applyFilters()" style="background:#0f1117;border:1px solid #2d3250;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;">
+    <option value="all">All Zones</option>
+  </select>
+  <select id="spFilter" onchange="applyFilters()" style="background:#0f1117;border:1px solid #2d3250;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;">
+    <option value="all">All SPs</option>
+  </select>
+  <select id="companyFilter" onchange="applyFilters()" style="background:#0f1117;border:1px solid #2d3250;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;">
+    <option value="all">All Companies</option>
+  </select>
+  <select id="groupBySelect" onchange="setGroupBy(this.value)" style="background:#0f1117;border:1px solid #ff6b35;color:#ff6b35;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;">
+    <option value="none">Default View</option>
+    <option value="zone">View by Zone</option>
+    <option value="sp">View by SP</option>
+    <option value="company">View by Company</option>
+  </select>
+</div>
+<!-- Toolbar row 2: status filters -->
+<div class="toolbar" style="padding-top:6px;padding-bottom:8px;gap:8px;">
+  <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+  <button class="filter-btn" onclick="setFilter('Break', this)">Break</button>
+  <button class="filter-btn" onclick="setFilter('Late', this)">Late</button>
+  <button class="filter-btn" onclick="setFilter('utr-low', this)" style="border-color:rgba(248,113,113,.4);color:#f87171;">UTR &lt; 1.8</button>
+  <button class="filter-btn" onclick="setFilter('break-long', this)" style="border-color:rgba(251,191,36,.4);color:#fbbf24;">Break &gt; 30m</button>
+  <button class="filter-btn" onclick="setFilter('cashblock', this)" style="border-color:rgba(248,113,113,.4);color:#f87171;">💸 Cash Block</button>
+  <button class="filter-btn" id="resetFilterBtn" onclick="resetFilter()" style="margin-left:auto;border-color:rgba(113,113,122,.4);color:#71717a;display:none;">✕ Reset</button>
+</div>
+
+<!-- Table -->
+<div class="table-wrap">
+  <table id="riderTable">
+    <thead>
+      <tr>
+        <th onclick="sortBy('id')">ID <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('name')">Name <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('zone')">Zone <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('sp')">SP <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('company')">Contract <span class="sort-arrow">↕</span></th>
+        <th>Phone</th>
+        <th onclick="sortBy('utr')">UTR <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('deliveries')">Deliveries <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('acceptRateNum')">Accept Rate <span class="sort-arrow">↕</span></th>
+        <th>Session</th>
+        <th onclick="sortBy('timeWorked')">Time Worked <span class="sort-arrow">↕</span></th>
+        <th>Wallet</th>
+        <th onclick="sortBy('status')">Rider State <span class="sort-arrow">↕</span></th>
+        <th>Breaks</th>
+        <th onclick="sortBy('breakTime')">Break Time <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('lateTime')">Late Time <span class="sort-arrow">↕</span></th>
+      </tr>
+    </thead>
+    <tbody id="riderBody">
+      <tr><td colspan="16"><div class="empty-state"><div class="icon">🏍️</div>Upload a CSV to begin</div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  const HEADCOUNT = {"993199":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Hassan Mohamed Ahmed Mohamed"},"2459090":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ahmed Shehata Sayed Ahmed"},"2144655":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Majed Shaaban abdelsalam"},"4669810":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Mohamed Ashraf Elsayed Mahmoud"},"4664379":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Karim Helal Hassan Moawad"},"2641288":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Ibrahim Emad Elish Hasanen"},"2464180":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Abdullah Ahmed Hasabalnabi Younis"},"1357051":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ahmed Barakat Rady Mohamed"},"829972":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Nader Salem Abdelaziz Hussein"},"2438276":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Yasser Hassan Ahmed Hamam"},"4767134":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Mahmoud Fawzi Mahmoud Badawi"},"625786":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Ahmed Amin Ahmed Amin"},"3915736":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Alaa Aly Fahmy Ismael"},"1081717":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Ahmed Mohammed Fathy Zaid"},"881730":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ahmed Mohamed Abdelhamid Abobakr"},"4650392":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Jasson","fullName":"Mohamed Elamir Mohamed Abdelrahman"},"4200433":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Youssef  Adel Nashed Wahba"},"2132601":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Rajab Salem Adawi Khalifa"},"1182240":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Mohamed Ashraf Muslim"},"4718676":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Mostafa Mohieeldin Ali Attia"},"4735827":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Ahmed Eid Mahrous Hassan"},"4187808":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"El Tohami","fullName":"Ihab Atef Mahmoud Ahmed"},"4151261":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Mahmoud Shawat Sayed Mohamed"},"2072520":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Muhammad  Mohieddin Ali"},"2088317":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Speedo","fullName":"Adel Imam Mutawa"},"2114084":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Speedo","fullName":"Ibrahim Abdullatif Othman Ali"},"1452683":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Hossam Helmy Hussien"},"1335386":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Ahmed Osama Shaaban Helmy"},"4695786":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Hassan Mohamed Hassan Elsayed"},"2094169":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Mohamed Sameh Ahmed Abdelgawad"},"1664219":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Suleiman Marzouq Suleiman"},"4681845":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Taha Ramadan Shalqami Alsayed"},"1054690":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Jasson","fullName":"Amir Adel Abdallah Khalifa"},"3688533":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Youssef Mohamed Abdeltawab Mustafa"},"4428173":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Osama Ahmed Gouda Farag"},"2102004":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Mohamed Ahmed Mohamed"},"1364186":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Abdallah Gomaa Abdallah"},"1440189":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Ragab Deifallah Ali Abdulkarim"},"2655197":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Mohsen Jamal Mohsen Hussain"},"1789953":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"El Tohami","fullName":"Mahmoud Abdelaal Teiby Abdelaal"},"1237084":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Ahmed Mohamed Ahmed Eid"},"4196376":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Mohamed Gamal Abduallah Gouda"},"4016873":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Abdulrahman Reda Fahy Ismael"},"4695954":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Fares  Emad Sayed AbdelNasser"},"4183100":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Ibrahim Magdy Mohamed Farghali"},"3914897":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Mohamed Ragab Fathy Abdelqader"},"4746702":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Mohamed Morsi Abdelalim Mohamed"},"2186248":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Khaled Mostafa Ahmed Mohamed"},"4566391":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Hamada Mahmoud Abdelazim Ahmed"},"4699429":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Al Alamia","fullName":"Mahran Yousry Mahran Mohamed"},"775585":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Bedaya","fullName":"Abdallah Ali Qwrany Ali"},"4708105":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Mohamed  Badr Mohamed Mabrouk"},"1528560":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Hatem Muhammad Ahmed Ibrahim"},"4265536":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Ahmed Magdy Zaki Ali"},"4609524":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Mohamed Shawky Taha Abdelrahman"},"2219872":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Ahmed Elsayed Ali"},"4483223":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Essam Mohamed Fathi Mohamed"},"2522094":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Fares Ahmed Abdelah Hassan"},"2183057":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Walid Khaled Hamdi Walid Hamouda"},"2029002":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Mohamed Masry Gomaa Mohamed"},"2096124":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Shihab Gamaleldin Ali"},"680045":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Ahmed Mohamed Ahmed Eid"},"4186593":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Ahmed Gamal Ahmed Abdelsabour"},"4650025":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Abdelrahman Ahmed Badawy Mohamed"},"1919843":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Hassan Mohamed Hussein Ali"},"886193":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Ali Mohamed Mohamed Khalel"},"2213662":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"MTA","fullName":"Mohamed Taha Sayed"},"1747964":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Islam Mahmoud Shehata"},"3883717":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Habib Mustafa Habib Arabi"},"2612282":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Muhammad Ahmed Bakri Mousa"},"1134233":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Ahmed Sabry Ahmed"},"4556092":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Ziad Yasser Salah Eltoukhy"},"1826709":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Ahmed Gomaa Farrag Gomaa"},"4719920":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"MTA","fullName":"Mohamed Rabie Ali Mahmoud"},"1984301":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Mamdouh Abdulrauf Ahmed Mohamed"},"866621":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Hossam Sabry Rashad Abdelaal"},"859779":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Mohamed Abdelhamed Mohamed Abdelrahman"},"906622":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"MTA","fullName":"Mahmoud Nasser Ahmed Abdelazem"},"4181383":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Speedo","fullName":"Abdulrahman Mohamed Abdullah Hassanein"},"4716044":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Mahmoud Mohamed Abdelfattah Fahmy"},"930068":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Ragab Mohammed Ahmed Abdelaziz"},"2035153":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"zeyad Abdel Hafeez Suleiman"},"1370327":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Ahmed Mustafa Ahmed Mahmoud"},"2164916":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Mustafa Salah Ali Zaki"},"3915759":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Ibrahim Mejahed Muhammad Hassan"},"4221218":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Mahmoud  Ibrahim Muhammad Ibrahim"},"3840533":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Hossam Hassan Ahmed Radwan"},"4773727":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Mohsin  Metwaly Mohamed Metwaly"},"1030990":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Mahmoud Wafi Ahmed"},"1760624":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Ahmed Ashraf Ibrahim"},"1897841":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Bedaya","fullName":"Tariq Mohamed Ahmed Mohamed"},"1646969":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Mahmoud Hamdy Abdelnaeem Hemida"},"2402786":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Ahmed Mahmoud Abdeltawab Mustafa"},"2066299":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Muhammad Ramadan Ahmed Osman"},"2482795":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Ahmed Othman Abdellah Omar"},"992812":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Mohamed Ali hossny Marzouk"},"4703686":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Wael  Ahmed Ahmed Ibrahim"},"2143864":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Abdelrahman Moustafa Halim Hussein"},"973400":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Mohamed Mahmoud Gaber Mahmoud"},"4738997":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"El Tohami","fullName":"Shady Mostafa Mohamed Mahmoud"},"895538":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Haitham Saeed Hassan Osman"},"2067780":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Hussein Mohammed Hassan Mohamed"},"4750111":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Abdulrahman Ahmed Abdulmalik Ahmed"},"1144569":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Alaa Mohamed Rumaihi Mohamed"},"1211670":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Mohamed Mohsen Abdalftah"},"2419611":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ali Ramadan Ali"},"1875263":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Mostafa Adel Hussein Morse"},"1218842":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Mahmoud Abdelhalim Fathi Abdelhalim"},"4220200":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Baiomy Jumaa Mohamed Abdelaleem"},"1027962":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Mahmoud Ahmed Ibrahim"},"4026786":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Abulnaga Fathi Abdelqader Abdelrasoul"},"1016547":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Ahmed Mohamed Fouad"},"1983930":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Abdulaziz Ebrahem Hamoda"},"4713479":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mahmoud Osama Mohamed Hassanein"},"4731477":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Ahmed Mohsen Abdelaziz Hussein"},"1976581":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Taha Mohamed Galal Ali"},"2119405":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Gamam Gomaa Ramdan"},"4617208":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Muhammad ZainalAbidin Ali AbdulMawjoud"},"4570906":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Hussein  Ahmed Ali Abdallah"},"4482526":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Sedik Yasser Mohammad Sedik"},"1779093":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Karim Ismail Mohamed"},"903079":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Farahat Khaled Farahat"},"4599881":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Fares Rady Eid Abdelghany"},"2100088":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Karim Khalaf Fayez"},"1756958":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Ahmed Ehab Mahmoud Ahmed"},"1137338":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mohamed Rabeai Ashour Abdelhakem"},"2112003":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Hani  Ibrahim Muhammad"},"4595930":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Hamada Mohamed Eissa Khalifa"},"4250932":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Mohamed Nasser Mohamed Shehata"},"1793738":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Shehab Wajdi Ahmed"},"1376830":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Sayed Ramadan Sayed Abdelatief"},"876601":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Ahmed ramadan eid"},"1376843":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Ahmed Abdelrahman Mehlhal"},"4733894":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mohamed Maher Rabei Ali"},"1862943":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Ahmed Mohamed Ahmed"},"2811338":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mohamed Hosny Eissa Hassan"},"3511043":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Mohamed  Helmy Ali Ibrahim"},"1444414":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Karim Khaled Hanfy"},"4482185":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Mustafa Atef Abdelbaset Ibrahim"},"3837316":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Mohamed Hosny Mohamed Hussien"},"1085486":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Zyad Tarek Mohamed Sayed"},"4707835":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mostafa Khedr Mohamed Shabaan"},"1120115":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Yasser Hussein Mohamed Hussein"},"4246420":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Youssef Yasser Mohamed Abdelrahman"},"3489281":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"MTA","fullName":"Muhammad  Ali Mahmoud Jabr"},"4556247":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Islam  Hassan Ismail Mahmoud"},"2132629":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Mahmoud Rabie Muhammad"},"1637143":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Omar Badry Ahmed Ibrahim"},"1651757":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"MTA","fullName":"Mahmoud Mohamed Awwad"},"1403391":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Gomaa Ramadan Sayed Abdullatif"},"2119320":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Hossam Sameh Sayed"},"1427586":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Mohamed Ezzat Mohamed"},"2529404":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Ahmed Ragab Naser Abdelhakim"},"1662353":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"MTA","fullName":"Ahmed Abdulmoula Ammar"},"1400406":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Hamdy wagih Mohamed Elshawdfy"},"841058":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Mahmoud Mohamed Ahmed"},"2119816":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Ahmed Sameh Sayed"},"4752295":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mahmoud Shaaban Youssef Hefny"},"1398933":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Speedo","fullName":"Mohamed Salim Abdelazeem Mahmoud"},"4711186":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Ahmed Mohamed Samah Abdelaziz"},"2462779":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Hani Mohamed Mahmoud Mohamed"},"4718239":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Salem Khairy Mohamed Badawi"},"4756127":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Abdullah  Omar Ahmed Hafez"},"1168050":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Ahmed Saoody Moamed"},"4315130":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Ibrahim Mahmoud Ahmed Mohamed"},"1970244":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"omar Ali Abdulah abdeltawab eid"},"1387275":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Jasson","fullName":"Khaled Sayed Ahmed"},"741861":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"El Tohami","fullName":"Hany Mohamed Ahmed Muhammad"},"4015423":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Mohamed Metwally Hosny Abdelaziz"},"2101033":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Abdullah  Juma Abdelwahab Ahmed"},"743432":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Gamal Mohamed Ahmed"},"2376374":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Muhammad Rabie Muhammad"},"4769820":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Thabet Zanati Thabet Zanati"},"2095343":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Abdelrahman Sayed Elashmawy"},"4459935":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Khaled Yasser Mohamed Abdelwahab"},"1196031":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Ahmed Reda Fahmy"},"4679045":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Abdulrahman Abdulsalam Abdulrahman Muhammad"},"2197560":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Ezzat Saleh Kamel Mohamed"},"2203715":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Ahmed Safwat Abdelaziz"},"1083134":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Ahmed Faraj AlJali"},"4427792":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Abdullah Mansour Abualhamaid Issa"},"4307574":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"MTA","fullName":"Mohamed Ismail Abdelhalim Gabr"},"1507604":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Al Alamia","fullName":"Ahmed Mohamed Maher Abdelsamad"},"3658561":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Ahmed Mohammed Hamed Mohammed"},"4714155":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Mohamed Hussein Embarek Hussein"},"1793747":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Amr Mohamed Helmy"},"4743310":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Sayed Mohamed Sayed AbdelRazek"},"939453":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Ahmed Mohamed Ibrahim"},"3884193":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Jasson","fullName":"Mohammed Khaled Shaaban Abdo"},"1387266":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Jasson","fullName":"Osama Adel Ataa"},"4061750":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Mustafa Alwani AbdelTawab Mustafa"},"4622075":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Alhussein Naji Muhammad Hamed"},"3526816":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mustafa Jamal Abdulrahman Ahmed"},"4739131":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Abdulghani  Saber Alsaadi Muhammad"},"3838340":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Alamir Mohammed Issa Fadel"},"4725149":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Mohammed Farid Abdelsalam Ibrahim"},"1216419":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Mohamed Gamal Esmiel Ali"},"2637919":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ziad Muhammad Mahmoud Ahmed"},"1697767":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Yasser Gomaa Abdulrahman Abubakr"},"849564":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Jasson","fullName":"Hossam Hassan Abdelzaher Ali"},"2096180":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Ahmed Ibrahim Ali Tony"},"1247434":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Reda Salem Adawi Khalifa"},"2147897":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Speedo","fullName":"Nasreldin Hosny Nasr Hosny"},"1974137":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Moustafa Mahmoud Abdelrehiem Abdelhakem"},"1926664":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Speedo","fullName":"Mohamed Sherif Mahmoud"},"4767259":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Mohamed Fathy Ahmed Mohamed"},"2472829":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"MTA","fullName":"Mohamed Mamdouh Abdelhamid Yousif"},"4725084":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Saif Saeed Shaaban Saif"},"4596908":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"MTA","fullName":"Karim Saber Thabet Abdelfattah"},"852641":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Mohamed Hassan Hussein"},"4444855":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"El Tohami","fullName":"Mahmoud Abdelgawad Ahmed Abdelgawad"},"3433351":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Mohamed Shaaban AbdelAzim Mohamed"},"1162251":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Ahmed Eid Mohamed Riad"},"1971946":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Ahmed Muslim Muhammad"},"4344019":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Al Alamia","fullName":"Ahmed Gamal Hussien Tony"},"4767053":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Ziad Ahmed Taha Ali"},"1054706":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Hassan Ahmed Hassan"},"774861":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Mehana Dabae Mehana"},"1258476":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Yousef Mohamed Ibrahim"},"4026763":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mina Monir Nehmedo Polies"},"4694265":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Abdulrahman Ali Abdulrahman Abdulmawjoud"},"4559921":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Ibrahim  Hassan Hamed Hussein"},"919942":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Ahmed Mohamed Ahmed"},"4732977":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Mohamed Ali Saad Mohamed"},"4104225":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Omar Mohammad Ramadan Abdelgayed"},"3439720":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Mohammed Sayed Saleh Awda"},"1347656":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mohammad Ahmad Abdelzaher Moustafa"},"1577765":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Speedo","fullName":"Abdelrahman Fares Mansour Sulimen"},"2036555":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Walid Salah Abdelsattar Abdelmohsen"},"1210104":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Ahmed Metwally Hosny Abdelaziz"},"1347269":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Mostafa Osman Taha"},"4187802":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"El Tohami","fullName":"Youssef Gamal Fathi Elshami"},"3775422":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Ali Abuelfotouh Mahmoud Ali"},"2119290":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Abdelrahem Mahmoud Abdelrahem Abdelhakim"},"2121468":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Muhammad Zeinhom Muhammad Hanafy"},"2153798":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Hassan Kamal Bakri"},"4700735":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Youssef  Essam Mohamed Ibrahim"},"3838188":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Muhammad Rajab Mahmoud Ali"},"4733723":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Ali Madian Abdelhakim Abdelkhaleq"},"4688790":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Mustafa Mahmoud Arabi Abdulhakim"},"4733644":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Abdallah Ashraf Shehata Ali"},"4707430":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Mohamed Ali Abdelaleem Morsi"},"3850267":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Mohamed Mustafa Ismail Ahmed"},"4618536":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Jasson","fullName":"Mohamed Shaaban Helmy Abdulazim"},"4715961":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Bedaya","fullName":"Mustafa  Ahmed Yahya Mustafa"},"819567":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Al Alamia","fullName":"Abdelazim Rabei Abdelazim Mohamed"},"1005362":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Sameh Najah Farag Abuelhassan"},"1168045":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Nasser Mohamed Abdelbaqi Ali"},"4714081":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Speedo","fullName":"Mohamed Ahmed Mohamed Afifi"},"791483":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"El Tohami","fullName":"Ebrahem Gamal Ebrahem Ebrahim"},"2644310":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Mohamed Omar Mohamed Ahmed"},"2402751":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Mahmoud Mahmoud Bayoumi"},"4764028":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Mohamed Ahmed Fathy Mohamed"},"4737093":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Youssef  Ahmed Fathy Ahmed"},"2222087":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Al Alamia","fullName":"Moemen Ahmed Gouda Abdulsalam"},"4518776":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Youssef Sharif Antar Jumaa"},"4767231":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"El Tohami","fullName":"Khalil Ezzat Badawi Mohamed"},"1887668":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Jasson","fullName":"Khaled Essam Abdelaaty Badr"},"1244241":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Azzam Ahmed Azzam Abdelaghafar"},"1436217":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Islam Hassan Mahmoud Saleh"},"1585867":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Abdelrhman Mohamed Atya Mohamed"},"2218403":{"zone":"Maadi","sp":"Hybrid fleet maadi old","company":"Jasson","fullName":"Mohamed Abdallah Abdelhamid"},"4566387":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Mohamed Adel Sayed Hassanein"},"4542670":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Ahmed Hamdi Awad Mohamed"},"4757871":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"El Tohami","fullName":"Mourad Mina Atallah Maslouh"},"4723186":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Speedo","fullName":"Badri Zidan Alazab Khalil"},"1039955":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mohamed Ahmed Atta Mahmoud"},"2480530":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"El Tohami","fullName":"Ahmed Eid Ahmed Taha"},"4719715":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"Speedo","fullName":"Baher Abdelfattah Ismail Abdelaziz"},"888749":{"zone":"Maadi","sp":"Hybrid fleet maadi meraag","company":"MTA","fullName":"Hussein Mohamed Hassan Elsayed"},"1972040":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Mustafa Ayman Ahmed Mahmoud"},"4732972":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Speedo","fullName":"Mohammed Reda Alsayyid Abdulmohsen"},"1434447":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mahmoud Farouq Nomaan Ali"},"4151203":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"MTA","fullName":"Yasser  Ahmed AbdelRahman Ahmed"},"4464323":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Al Alamia","fullName":"Amr Ashraf Mohamed Mahmoud"},"1766355":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"Speedo","fullName":"Ehab Tawfiq Abdel Radi Mahmoud"},"2505394":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam easy sports","company":"Al Alamia","fullName":"Mohamed  Hamza Mohamed Abdullah"},"4298659":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Hazem Yasser Abdelmalek Mohamed"},"997714":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"MTA","fullName":"Islam Mahmoud Rabie Ismail"},"778560":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Mostafa Mohamed Abdelrazik"},"2482686":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"Al Alamia","fullName":"Ibrahim Essa Ibrahim Elsayed"},"4556179":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam nafora","company":"MTA","fullName":"Mohamed Adel Mohamed Masoud"},"2105939":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Shaaban Abdullah Juma Abodah"},"4735632":{"zone":"Maadi","sp":"Hybrid fleet maadi laselky","company":"Bedaya","fullName":"Ahmed Taha Hassan Elsaidy"},"2480582":{"zone":"Maadi","sp":"Hybrid fleet maadi","company":"El Tohami","fullName":"Muhammad Abdullah Juma Aboud"},"1934025":{"zone":"Mokkatam","sp":"Hybrid fleet mokattam mafarik","company":"Speedo","fullName":"Hussein Ahemd Mohamed"}};
+  let riders = [];
+  let activeFilter = 'all';
+  let sortCol = '';
+  let sortAsc = true;
+  let groupByField = 'none';
+
+  function lookupRider(riderId) {
+    const h = HEADCOUNT[String(riderId)];
+    if (!h) return { zone: 'N/A', sp: 'N/A', company: 'N/A' };
+    return { zone: h.zone || 'N/A', sp: h.sp || 'N/A', company: h.company || 'N/A' };
+  }
+
+  function spShort(sp) {
+    return sp.replace(/^Hybrid fleet /i, '').trim();
+  }
+
+  function spClass(sp) {
+    const s = (sp || '').toLowerCase();
+    if (s.includes('laselky'))  return 'sp-laselky';
+    if (s.includes('meraag'))   return 'sp-meraag';
+    if (s.includes('mafarik'))  return 'sp-mafarik';
+    if (s.includes('nafora'))   return 'sp-nafora';
+    if (s.includes('old'))      return 'sp-old';
+    if (s.includes('maadi'))    return 'sp-maadi';
+    return 'sp-na';
+  }
+
+  // ── Zone Manager (fallback for riders not in headcount) ──────
+  function openZoneModal() { document.getElementById('zoneModal').style.display = 'flex'; }
+  function closeZoneModal() { document.getElementById('zoneModal').style.display = 'none'; }
+  function addZoneRow(name='', ids='') {
+    const row = document.createElement('div'); row.className = 'zone-row';
+    row.innerHTML = `<input type="text" placeholder="Zone name" value="${name}" style="max-width:150px;"/>
+      <input type="text" placeholder="Rider IDs (comma-separated)" value="${ids}" style="flex:2;"/>
+      <button onclick="this.parentElement.remove()">✕</button>`;
+    document.getElementById('zoneRows').appendChild(row);
+  }
+  function saveZones() {
+    const rows = document.querySelectorAll('#zoneRows .zone-row');
+    const overrides = {};
+    rows.forEach(row => {
+      const inputs = row.querySelectorAll('input');
+      const name = inputs[0].value.trim();
+      const ids = inputs[1].value.split(',').map(s => s.trim()).filter(Boolean);
+      ids.forEach(id => { overrides[id] = name; });
+    });
+    try { localStorage.setItem('zoneOverrides', JSON.stringify(overrides)); } catch(e) {}
+    closeZoneModal();
+    riders = riders.map(r => {
+      const override = overrides[String(r.id)];
+      return override ? { ...r, zone: override } : r;
+    });
+    renderAll();
+  }
+
+  function setGroupBy(val) { groupByField = val; applyFilters(); }
+
+  function buildDropdowns() {
+    const build = (selId, vals, label) => {
+      const sel = document.getElementById(selId);
+      const cur = sel.value;
+      sel.innerHTML = `<option value="all">${label}</option>`;
+      [...new Set(vals)].filter(Boolean).sort().forEach(v => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        if (v === cur) o.selected = true;
+        sel.appendChild(o);
+      });
+    };
+    build('zoneFilter',    riders.map(r => r.zone),    'All Zones');
+    build('spFilter',      riders.map(r => r.sp),      'All SPs');
+    build('companyFilter', riders.map(r => r.company), 'All Companies');
+  }
+
+  // ── Data loading ──────────────────────────────────────────────
+  // Sample uses real IDs from headcount so zone/sp/company auto-populate
+  const SAMPLE_RAW = [
+    { id:'680045',  name:'Ahmed Mohamed',   phone:'201559971262', status:'Working', utr:1.8, deliveries:2,  acceptRate:'100%', sessionStart:'14:00', sessionEnd:'01:00', timeWorked:'1:06:16',  wallet:'EGP 1691.55', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'741861',  name:'Hany Mohamed',    phone:'201111493205', status:'Working', utr:2.0, deliveries:10, acceptRate:'100%', sessionStart:'10:00', sessionEnd:'21:00', timeWorked:'4:59:36',  wallet:'EGP 2666.58', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'743432',  name:'Gamal Mohamed',   phone:'201553714016', status:'Working', utr:1.9, deliveries:10, acceptRate:'100%', sessionStart:'10:00', sessionEnd:'21:00', timeWorked:'5:07:17',  wallet:'EGP 340.57',  breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'774861',  name:'Mehana Dabae',    phone:'201156329190', status:'Late',    utr:0.0, deliveries:0,  acceptRate:'0%',   sessionStart:'12:00', sessionEnd:'23:00', timeWorked:'0:00:00',  wallet:'EGP 2022.44', breaks:'0', breakTime:'0:00:00', lateTime:'2:59:18' },
+    { id:'778560',  name:'Mostafa Mohamed', phone:'201228497878', status:'Working', utr:2.1, deliveries:3,  acceptRate:'100%', sessionStart:'14:00', sessionEnd:'01:00', timeWorked:'1:22:17',  wallet:'EGP 2884.11', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'841058',  name:'Mahmoud Mohamed', phone:'201141115133', status:'Working', utr:2.6, deliveries:14, acceptRate:'75%',  sessionStart:'10:00', sessionEnd:'21:00', timeWorked:'5:20:17',  wallet:'EGP 1068.58', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'829972',  name:'Hossam Hassan',   phone:'201033572276', status:'Working', utr:2.3, deliveries:8,  acceptRate:'80%',  sessionStart:'12:00', sessionEnd:'23:00', timeWorked:'3:27:18',  wallet:'EGP 1083.64', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'930068',  name:'Mohamed Ali',     phone:'201158909073', status:'Break',   utr:3.6, deliveries:19, acceptRate:'100%', sessionStart:'10:00', sessionEnd:'21:00', timeWorked:'5:12:01',  wallet:'EGP 395.38',  breaks:'1', breakTime:'0:00:16', lateTime:'0:00:00' },
+    { id:'942275',  name:'Mahmoud Mahr',    phone:'201020322348', status:'Working', utr:2.4, deliveries:12, acceptRate:'60%',  sessionStart:'10:00', sessionEnd:'21:00', timeWorked:'4:57:00',  wallet:'EGP 657.11',  breaks:'1', breakTime:'0:19:17', lateTime:'0:00:00' },
+    { id:'895538',  name:'Abdelazim Rabe',  phone:'201114177407', status:'Working', utr:2.8, deliveries:3,  acceptRate:'100%', sessionStart:'14:00', sessionEnd:'01:00', timeWorked:'1:03:14',  wallet:'EGP 1896.73', breaks:'0', breakTime:'0:00:00', lateTime:'0:00:00' },
+    { id:'903079',  name:'Mostafa Hassa',   phone:'201114949632', status:'Break',   utr:2.8, deliveries:19, acceptRate:'100%', sessionStart:'08:00', sessionEnd:'20:00', timeWorked:'6:42:36',  wallet:'EGP 2128.09', breaks:'2', breakTime:'0:04:13', lateTime:'0:00:00' },
+    { id:'912713',  name:'Borham Roshdy',   phone:'201225428787', status:'Working', utr:2.2, deliveries:14, acceptRate:'100%', sessionStart:'08:30', sessionEnd:'16:30', timeWorked:'6:15:05',  wallet:'EGP 3140.34', breaks:'1', breakTime:'0:02:26', lateTime:'0:00:00' },
+  ];
+  const SAMPLE = SAMPLE_RAW.map(r => ({ ...r, acceptRateNum: parseFloat(r.acceptRate) || 0, ...lookupRider(r.id) }));
+
+  function loadSampleData() {
+    riders = SAMPLE;
+    renderAll();
+  }
+
+  function loadFromFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      const parsed = parseCSV(text);
+      if (parsed.length === 0) { alert('Could not read the CSV file. Make sure it is a valid Rooster export.'); return; }
+      riders = parsed;
+      try { localStorage.setItem('riderCSVData', text); } catch(e) {}
+      try { localStorage.setItem('riderLastUpdated', new Date().toLocaleTimeString() + ' (from ' + file.name + ')'); } catch(e) {}
+      renderAll();
+      updateLastUpdated();
+      event.target.value = '';
+      pushToGAS(text, file.name);
+    };
+    reader.readAsText(file);
+  }
+
+  function openPasteModal() {
+    const m = document.getElementById('pasteModal');
+    m.style.display = 'flex';
+    document.getElementById('csvPasteArea').focus();
+  }
+
+  function closePasteModal() {
+    document.getElementById('pasteModal').style.display = 'none';
+  }
+
+  function loadFromPaste() {
+    const text = document.getElementById('csvPasteArea').value.trim();
+    if (!text) { alert('Please paste your Rooster data first.'); return; }
+    const parsed = parseCSV(text);
+    if (parsed.length === 0) { alert('Could not read the data. Make sure you copied the full table from Rooster.'); return; }
+    riders = parsed;
+    try { localStorage.setItem('riderCSVData', text); } catch(e) {}
+    try { localStorage.setItem('riderLastUpdated', new Date().toLocaleTimeString()); } catch(e) {}
+    closePasteModal();
+    renderAll();
+    updateLastUpdated();
+    pushToGAS(text, 'paste');
+  }
+
+  function updateLastUpdated() {
+    const t = (() => { try { return localStorage.getItem('riderLastUpdated'); } catch(e) { return null; } })();
+    if (t) document.getElementById('lastUpdatedBar').textContent = '✅ Last updated: ' + t + '  |  Click "Paste Data" to refresh';
+  }
+
+  // ── View-only mode ──
+  (function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('view')) {
+      document.body.classList.add('view-only');
+    }
+  })();
+
+  function toggleTheme() {
+    const isLight = document.body.classList.toggle('light');
+    document.getElementById('themeToggle').textContent = isLight ? '🌙' : '☀️';
+    try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch(e) {}
+  }
+  (function() {
+    const savedTheme = (() => { try { return localStorage.getItem('theme'); } catch(e) { return null; } })();
+    if (savedTheme === 'light') {
+      document.body.classList.add('light');
+      document.getElementById('themeToggle').textContent = '🌙';
+    }
+  })();
+
+  function loadData() {
+    const saved = (() => { try { return localStorage.getItem('riderCSVData'); } catch(e) { return null; } })();
+    if (saved) {
+      const parsed = parseCSV(saved);
+      if (parsed.length > 0) { riders = parsed; renderAll(); updateLastUpdated(); return; }
+    }
+    loadSampleData();
+  }
+
+  function splitCSVLine(line) {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim().replace(/^"|"$/g,'')); cur = ''; }
+      else cur += ch;
+    }
+    cols.push(cur.trim().replace(/^"|"$/g,''));
+    return cols;
+  }
+
+  function parseCSV(text) {
+    const lines = text.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) return [];
+    // Row 1: garbled Rooster CSS headers — skip.
+    // Col positions: 0:ID 1:Name 2:Phone 3:Session 4:UTR 5:Deliveries
+    //               6:TimeWorked 7:AcceptRate 8:Wallet 9:Breaks 10:BreakTime 11:LateTime 12:Status
+    const overrides = JSON.parse((() => { try { return localStorage.getItem('zoneOverrides'); } catch(e) { return null; } })() || '{}');
+    return lines.slice(1).map(line => {
+      const cols = splitCSVLine(line);
+      const c = i => (cols[i] || '').trim();
+      const session = c(3);
+      const [sessionStart, sessionEnd] = session.includes('-')
+        ? session.split('-').map(s => s.trim()) : ['', ''];
+      const riderId = c(0);
+      const acceptRateStr = c(7);
+      const hc = lookupRider(riderId);
+      return {
+        id:            riderId,
+        name:          c(1),
+        phone:         c(2),
+        sessionStart, sessionEnd,
+        utr:           parseFloat(c(4)) || 0,
+        deliveries:    parseInt(c(5))   || 0,
+        timeWorked:    c(6),
+        acceptRate:    acceptRateStr,
+        acceptRateNum: parseFloat(acceptRateStr) || 0,
+        wallet:        c(8),
+        breaks:        c(9),
+        breakTime:     c(10),
+        lateTime:      c(11),
+        status:        c(12) || 'Unknown',
+        zone:          overrides[riderId] || hc.zone,
+        sp:            hc.sp,
+        company:       hc.company,
+      };
+    });
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+  function renderAll() {
+    updateStats();
+    buildDropdowns();
+    applyFilters();
+    document.getElementById('lastRefresh').textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
+  }
+
+  function updateStats() {
+    document.getElementById('statTotal').textContent = riders.length;
+    document.getElementById('statWorking').textContent = riders.filter(r => r.status === 'Working').length;
+    document.getElementById('statIdle').textContent = riders.filter(r => r.status === 'Idle' || r.status === 'Break').length;
+    document.getElementById('statLate').textContent = riders.filter(r => r.status === 'Late').length;
+    document.getElementById('statEnding').textContent = riders.filter(r => r.status === 'Ending').length;
+    const activeRiders = riders.filter(r => r.utr > 0);
+    const avgNum = activeRiders.length ? activeRiders.reduce((s, r) => s + r.utr, 0) / activeRiders.length : null;
+    const utrEl = document.getElementById('statAvgUTR');
+    utrEl.textContent = avgNum !== null ? avgNum.toFixed(2) : '—';
+    utrEl.style.color = avgNum === null ? '#52525b' : avgNum >= 2.2 ? '#4ade80' : avgNum >= 1.5 ? '#fbbf24' : '#f87171';
+    document.getElementById('statDeliveries').textContent = riders.reduce((s, r) => s + r.deliveries, 0);
+  }
+
+  function resetFilter() {
+    const allBtn = document.querySelector('.filter-btn');
+    setFilter('all', allBtn);
+  }
+  function setFilter(f, btn) {
+    activeFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    const resetBtn = document.getElementById('resetFilterBtn');
+    if (resetBtn) resetBtn.style.display = f === 'all' ? 'none' : '';
+    btn.classList.add('active');
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const q           = document.getElementById('searchBox').value.toLowerCase();
+    const zoneVal     = document.getElementById('zoneFilter').value;
+    const spVal       = document.getElementById('spFilter').value;
+    const companyVal  = document.getElementById('companyFilter').value;
+    let list = riders;
+    if (activeFilter === 'utr-low')    list = list.filter(r => r.utr > 0 && r.utr < 1.8);
+    else if (activeFilter === 'break-long') list = list.filter(r => r.status === 'Break' && breakMinutes(r.breakTime) > 30);
+    else if (activeFilter === 'cashblock')  list = list.filter(r => walletNum(r.wallet) > 3000);
+    else if (activeFilter !== 'all')   list = list.filter(r => r.status === activeFilter);
+    if (zoneVal    !== 'all')   list = list.filter(r => r.zone    === zoneVal);
+    if (spVal      !== 'all')   list = list.filter(r => r.sp      === spVal);
+    if (companyVal !== 'all')   list = list.filter(r => r.company === companyVal);
+    if (q) list = list.filter(r =>
+      r.name.toLowerCase().includes(q) || String(r.id).includes(q) || r.phone.includes(q) ||
+      r.zone.toLowerCase().includes(q) || r.sp.toLowerCase().includes(q) || r.company.toLowerCase().includes(q)
+    );
+    if (sortCol) {
+      list = [...list].sort((a, b) => {
+        let av = a[sortCol], bv = b[sortCol];
+        if (typeof av === 'number' && typeof bv === 'number') { /* numeric */ }
+        else if (!isNaN(parseFloat(av)) && !isNaN(parseFloat(bv))) { av = parseFloat(av); bv = parseFloat(bv); }
+        else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase(); }
+        return sortAsc ? (av > bv ? 1 : av < bv ? -1 : 0) : (av < bv ? 1 : av > bv ? -1 : 0);
+      });
+    }
+    renderTable(list);
+  }
+
+  function sortBy(col) {
+    if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+    document.querySelectorAll('thead th').forEach(th => th.classList.remove('sorted'));
+    event.currentTarget.classList.add('sorted');
+    const arrow = event.currentTarget.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = sortAsc ? '↑' : '↓';
+    applyFilters();
+  }
+
+  function utrClass(v) { return v >= 2.2 ? 'utr-high' : v >= 1.5 ? 'utr-mid' : 'utr-low'; }
+  function walletNum(w) { return parseFloat(String(w || '').replace(/[^0-9.]/g, '')) || 0; }
+  function walletClass(w) { return walletNum(w) > 3000 ? 'wallet-danger' : ''; }
+  function breakMinutes(t) {
+    if (!t) return 0;
+    const m = String(t).match(/(\d+):(\d+)/);
+    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+    const n = parseFloat(t);
+    return isNaN(n) ? 0 : n;
+  }
+  function lateClass(v) { return v && v !== '00:00:00' && v !== '0:00:00' ? 'late-flag' : 'ok'; }
+  function arClass(v) { return v >= 90 ? 'utr-high' : v >= 80 ? 'utr-mid' : 'utr-low'; }
+
+  function renderTable(list) {
+    document.getElementById('riderCount').textContent = `${list.length} Rider${list.length !== 1 ? 's' : ''}`;
+    const tbody = document.getElementById('riderBody');
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="16"><div class="empty-state"><div class="icon">🔍</div>No riders match.</div></td></tr>';
+      return;
+    }
+    if (groupByField !== 'none') {
+      const groups = {};
+      const fieldMap = { zone: 'zone', sp: 'sp', company: 'company' };
+      const field = fieldMap[groupByField] || 'zone';
+      list.forEach(r => { const k = r[field] || 'Unknown'; (groups[k] = groups[k] || []).push(r); });
+      const sorted = Object.keys(groups).sort((a,b) => a === 'Unknown' ? 1 : b === 'Unknown' ? -1 : a.localeCompare(b));
+      tbody.innerHTML = sorted.map(key => {
+        const grp = groups[key];
+        const icon = field === 'zone' ? '📍' : field === 'sp' ? '🏢' : '🏷️';
+        const header = `<tr class="zone-group-header"><td colspan="16">${icon} ${key} — ${grp.length} rider${grp.length !== 1 ? 's' : ''}</td></tr>`;
+        return header + grp.map(r => riderRow(r)).join('');
+      }).join('');
+    } else {
+      tbody.innerHTML = list.map(r => riderRow(r)).join('');
+    }
+  }
+
+  function riderRow(r) {
+    const zClass = r.zone === 'Maadi' ? 'zone-Maadi' : r.zone === 'Mokattam' ? 'zone-Mokattam' : 'zone-unknown';
+    return `
+      <tr>
+        <td><div class="rider-id">${r.id}</div></td>
+        <td><div class="rider-name">${(HEADCOUNT[String(r.id)] && HEADCOUNT[String(r.id)].fullName) || r.name}</div></td>
+        <td><span class="zone-badge ${zClass}">${r.zone || '—'}</span></td>
+        <td><span class="sp-badge ${spClass(r.sp)}">${r.sp || 'N/A'}</span></td>
+        <td><span class="company-badge">${r.company || '—'}</span></td>
+        <td><div class="phone">${r.phone}</div></td>
+        <td class="${utrClass(r.utr)}">${r.utr}</td>
+        <td>${r.deliveries}</td>
+        <td class="${arClass(r.acceptRateNum)}">${r.acceptRate || '—'}</td>
+        <td>${r.sessionStart} – ${r.sessionEnd}</td>
+        <td>${r.timeWorked || '—'}</td>
+        <td class="${walletClass(r.wallet)}">${r.wallet || '—'}</td>
+        <td><span class="status-badge status-${r.status}">${r.status}</span></td>
+        <td>${r.breaks || '0'}</td>
+        <td class="${lateClass(r.breakTime)}">${r.breakTime || '—'}</td>
+        <td class="${lateClass(r.lateTime)}">${r.lateTime || '—'}</td>
+      </tr>
+    `;
+  }
+
+
+  // ── GAS Sync ──
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwve-O4yZeN-fQYptRV-Z5SbzBUepcBrJn2rKokygBrf-P3R2x3tibeTlqOfoxrO90Xrw/exec';
+
+  function showSyncBadge(text, color) { /* silent sync - no UI badge */ }
+
+  async function pushToGAS(csvText, filename) {
+    if (!GAS_URL) return;
+    try {
+      const ts = new Date().toLocaleTimeString() + ' (from ' + filename + ')';
+      await fetch(GAS_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ csv: csvText, lastUpdated: ts })
+      });
+    } catch(e) {
+    }
+  }
+
+  async function fetchFromGAS() {
+    if (!GAS_URL) return false;
+    try {
+      const res = await fetch(GAS_URL, { redirect: 'follow' });
+      const data = await res.json();
+      if (data && data.csv && data.csv.length > 50) {
+        const parsed = parseCSV(data.csv);
+        if (parsed.length > 0) {
+          riders = parsed;
+          try { localStorage.setItem('riderCSVData', data.csv); } catch(e) {}
+          try { localStorage.setItem('riderLastUpdated', data.lastUpdated || ''); } catch(e) {}
+          renderAll();
+          updateLastUpdated();
+              return true;
+        }
+      }
+      return false;
+    } catch(e) {
+      return false;
+    }
+  }
+
+  window.onload = async () => {
+    const ok = await fetchFromGAS();
+    if (!ok) loadData();
+  };
+</script>
+
+
+</body>
+</html>
