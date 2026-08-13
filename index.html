@@ -999,8 +999,13 @@
     if (!Array.isArray(parsed) || !parsed.length) { alert('الشكل مش مظبوط — المفروض يكون array فيه الرايدرز.'); return; }
     loadRidersFromSync(parsed);
     try { localStorage.setItem('riderSyncData', JSON.stringify(parsed)); } catch (e) {}
-    const ts = new Date().toLocaleTimeString();
-    try { localStorage.setItem('riderSyncUpdated', ts); } catch (e) {}
+const ts = new Date().toLocaleTimeString();
+try { localStorage.setItem('riderSyncUpdated', ts); } catch (e) {}
+// keep the CSV-flow fallback keys in sync too, so a later pushToGAS() call
+// (e.g. from Load Orders) never falls back to an empty/stale csv and wipes
+// the shared backend's rider data.
+try { localStorage.setItem('riderCSVData', ridersToCSV(parsed)); } catch (e) {}
+try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)'); } catch (e) {}
     closeSyncModal();
     renderAll();
     document.getElementById('lastUpdatedBar').textContent = '✅ Synced from Rooster Live: ' + ts + ' (' + parsed.length + ' riders)';
