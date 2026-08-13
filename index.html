@@ -83,6 +83,39 @@
     body.light .zone-group-header td { background: #f4f4f5; border-top-color: #e4e4e7; }
     body.light .stat-value[style*="#e4e4e7"] { color: #18181b !important; }
 
+    /* ── Orders list (panel) ── */
+    .orders-empty { font-size: 11px; color: #52525b; line-height: 1.5; background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px; }
+    .orders-meta { font-size: 10.5px; color: #52525b; margin-bottom: 8px; }
+    .order-card { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+    .order-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .order-code { font-size: 11.5px; font-weight: 700; color: #e4e4e7; }
+    .order-status { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 8px; border-radius: 99px; }
+    .order-status.completed { background: rgba(34,197,94,.12); color: #4ade80; }
+    .order-status.cancelled { background: rgba(248,113,113,.12); color: #f87171; }
+    .order-status.other { background: rgba(251,191,36,.12); color: #fbbf24; }
+    .order-vendor { font-size: 11px; color: #a1a1aa; margin-bottom: 4px; }
+    .order-addr { font-size: 10.5px; color: #71717a; line-height: 1.5; }
+    .order-addr b { color: #a1a1aa; font-weight: 600; }
+    body.light .order-card { background: #fafafa; border-color: #e4e4e7; }
+    body.light .order-code { color: #18181b; }
+    body.light .orders-empty { background: #fafafa; border-color: #e4e4e7; }
+
+    /* ── Orders tabs ── */
+    .orders-tabs { display: flex; gap: 18px; border-bottom: 1px solid #27272a; margin-bottom: 10px; }
+    .orders-tab { font-size: 11.5px; font-weight: 700; color: #71717a; padding-bottom: 8px; cursor: pointer; border-bottom: 2px solid transparent; }
+    .orders-tab.active { color: #ff6b35; border-color: #ff6b35; }
+    body.light .orders-tabs { border-color: #e4e4e7; }
+
+    /* ── Order step progress ── */
+    .order-progress { display: flex; align-items: flex-start; margin: 10px 0 8px; }
+    .order-progress-step { flex: 1; text-align: center; position: relative; }
+    .order-progress-line { position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: #3f3f46; z-index: 0; }
+    .order-progress-line.done { background: #4ade80; }
+    .order-progress-dot { width: 10px; height: 10px; border-radius: 50%; background: #3f3f46; margin: 0 auto 4px; position: relative; z-index: 1; }
+    .order-progress-dot.done { background: #4ade80; }
+    .order-progress-label { font-size: 8.5px; color: #71717a; text-transform: uppercase; letter-spacing: .3px; }
+    .order-progress-time { font-size: 9px; color: #52525b; margin-top: 2px; }
+
     /* theme toggle */
     .theme-btn {
       background: #18181b; border: 1px solid #3f3f46; color: #e4e4e7;
@@ -304,7 +337,73 @@
     #zoneModal .zone-row input:focus { outline: none; border-color: #ff6b35; }
     #zoneModal .zone-row button { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.2); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .zone-add-btn { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.2); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 4px; font-family: inherit; }
-  
+
+    /* ── Row view button ── */
+    .view-btn {
+      background: #18181b; border: 1px solid #3f3f46; color: #a1a1aa;
+      width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+      font-size: 12px; display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+    }
+    .view-btn:hover { background: #ff6b35; border-color: #ff6b35; color: #fff; }
+    body.light .view-btn { background: #fff; border-color: #d4d4d8; color: #71717a; }
+    body.light .view-btn:hover { background: #ff6b35; border-color: #ff6b35; color: #fff; }
+    tbody tr { cursor: pointer; }
+
+    /* ── Rider detail side panel ── */
+    .rider-panel-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 999;
+      opacity: 0; pointer-events: none; transition: opacity .25s ease;
+    }
+    .rider-panel-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .rider-panel {
+      position: fixed; top: 0; right: 0; height: 100vh; width: 430px; max-width: 92vw;
+      background: #0c0c0e; border-left: 1px solid #27272a; z-index: 1000;
+      transform: translateX(100%); transition: transform .3s cubic-bezier(.2,.8,.2,1);
+      overflow-y: auto; box-shadow: -12px 0 40px rgba(0,0,0,.4);
+    }
+    .rider-panel.open { transform: translateX(0); }
+    body.light .rider-panel { background: #fff; border-left-color: #e4e4e7; }
+
+    .panel-inner { padding: 26px 24px 40px; position: relative; }
+    .panel-close-btn {
+      position: absolute; top: 0; right: 0;
+      background: #18181b; border: 1px solid #3f3f46; color: #e4e4e7;
+      width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 14px;
+    }
+    .panel-close-btn:hover { background: #27272a; }
+    body.light .panel-close-btn { background: #f4f4f5; border-color: #d4d4d8; color: #18181b; }
+
+    .panel-name { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; margin: 4px 40px 12px 0; line-height: 1.3; }
+    .panel-badges { display: flex; align-items: center; gap: 8px; margin-bottom: 22px; flex-wrap: wrap; }
+    .panel-status-badge { font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 99px; }
+    .panel-status-badge.status-Working { background: rgba(34,197,94,.15); color: #4ade80; }
+    .panel-status-badge.status-Break   { background: rgba(251,191,36,.15); color: #fbbf24; }
+    .panel-status-badge.status-Late    { background: rgba(248,113,113,.15); color: #f87171; }
+    .panel-status-badge.status-Idle    { background: rgba(161,161,170,.15); color: #a1a1aa; }
+    .panel-status-badge.status-Ending  { background: rgba(196,181,253,.15); color: #c4b5fd; }
+    .panel-company { font-size: 12px; color: #71717a; font-weight: 600; }
+
+    .panel-idrow { display: flex; justify-content: space-between; padding: 12px 0; border-top: 1px solid #27272a; }
+    .panel-idrow:last-of-type { border-bottom: 1px solid #27272a; margin-bottom: 22px; }
+    body.light .panel-idrow { border-color: #e4e4e7; }
+    .panel-idrow .lbl { font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; margin-bottom: 4px; }
+    .panel-idrow .val { font-size: 13px; font-weight: 700; }
+
+    .panel-section-title { font-size: 13px; font-weight: 800; margin: 4px 0 14px; }
+    .panel-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px 10px; margin-bottom: 24px; }
+    .panel-field-label { font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; margin-bottom: 5px; }
+    .panel-field-value { font-size: 14px; font-weight: 700; }
+
+    .panel-stat-box {
+      background: #18181b; border: 1px solid #27272a; border-radius: 10px;
+      padding: 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+    }
+    body.light .panel-stat-box { background: #fafafa; border-color: #e4e4e7; }
+    .panel-stat-num { font-size: 26px; font-weight: 800; }
+    .panel-stat-lbl { font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; margin-top: 2px; }
+    .panel-note { font-size: 11px; color: #52525b; line-height: 1.5; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -326,11 +425,14 @@
 
 <!-- Config bar -->
 <div class="config-bar">
-  <label style="background:#ff6b35;color:#fff;font-weight:700;padding:8px 20px;border-radius:7px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:6px;">
+  <button onclick="openSyncModal()" style="background:#ff6b35;color:#fff;font-weight:700;padding:8px 20px;border-radius:7px;cursor:pointer;font-size:13px;border:none;font-family:inherit;">🔄 Sync Riders (Live)</button>
+  <label style="background:#18181b;color:#a1a1aa;border:1px solid #3f3f46;font-weight:600;padding:7px 16px;border-radius:7px;cursor:pointer;font-size:12px;display:inline-flex;align-items:center;gap:6px;">
     📂 Upload CSV
     <input type="file" id="csvFileInput" accept=".csv,.txt" style="display:none;" onchange="loadFromFile(event)"/>
   </label>
+  <button onclick="openOrdersModal()" style="background:#18181b;color:#a1a1aa;border:1px solid #3f3f46;padding:8px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;">📦 Load Orders</button>
   <div class="config-help" id="lastUpdatedBar">Instant Data Scraper → Download CSV → Upload here</div>
+  <div class="config-help" id="ordersUpdatedBar" style="width:100%;"></div>
 </div>
 
 <!-- Zone Manager Modal -->
@@ -357,6 +459,34 @@
     <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
       <button onclick="closePasteModal()" style="background:#27272a;color:#a1a1aa;border:1px solid #3f3f46;padding:9px 20px;border-radius:7px;cursor:pointer;font-family:inherit;">Cancel</button>
       <button onclick="loadFromPaste()" style="background:#ff6b35;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;">Load Data</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sync Riders paste modal (hidden) -->
+<div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#18181b;border:1px solid #3f3f46;border-radius:14px;padding:28px;width:90%;max-width:700px;">
+    <h2 style="color:#e4e4e7;margin-bottom:12px;font-size:17px;font-weight:700;">🔄 Sync Riders from Rooster Live</h2>
+    <p style="color:#71717a;font-size:12px;margin-bottom:12px;">افتح صفحة Live 3PL في Rooster، شغّل الـ "Sync Riders" bookmarklet، وبعدين الصق الـ JSON اللي طلعلك هنا (بيجيب كل بيانات الجدول تلقائي، من غير CSV).</p>
+    <textarea id="syncPasteArea" rows="12" placeholder='[{"id":"841646","name":"...","status":"Working",...}, ...]'
+      style="width:100%;background:#09090b;border:1px solid #3f3f46;color:#e4e4e7;padding:12px;border-radius:8px;font-size:12px;font-family:monospace;resize:vertical;"></textarea>
+    <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+      <button onclick="closeSyncModal()" style="background:#27272a;color:#a1a1aa;border:1px solid #3f3f46;padding:9px 20px;border-radius:7px;cursor:pointer;font-family:inherit;">Cancel</button>
+      <button onclick="loadFromSyncPaste()" style="background:#ff6b35;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;">Load Data</button>
+    </div>
+  </div>
+</div>
+
+<!-- Orders paste modal (hidden) -->
+<div id="ordersModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#18181b;border:1px solid #3f3f46;border-radius:14px;padding:28px;width:90%;max-width:700px;">
+    <h2 style="color:#e4e4e7;margin-bottom:12px;font-size:17px;font-weight:700;">📦 Paste Orders JSON</h2>
+    <p style="color:#71717a;font-size:12px;margin-bottom:12px;">شغّل الـ bookmarklet وانت داخل على logisticsbackoffice.com، هيدّيك JSON — الصقه هنا.</p>
+    <textarea id="ordersPasteArea" rows="12" placeholder='{"317680": {...}, "741861": {...}}'
+      style="width:100%;background:#09090b;border:1px solid #3f3f46;color:#e4e4e7;padding:12px;border-radius:8px;font-size:12px;font-family:monospace;resize:vertical;"></textarea>
+    <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end;">
+      <button onclick="closeOrdersModal()" style="background:#27272a;color:#a1a1aa;border:1px solid #3f3f46;padding:9px 20px;border-radius:7px;cursor:pointer;font-family:inherit;">Cancel</button>
+      <button onclick="loadOrdersFromPaste()" style="background:#ff6b35;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;">Load Orders</button>
     </div>
   </div>
 </div>
@@ -408,6 +538,7 @@
   <table id="riderTable">
     <thead>
       <tr>
+        <th style="width:40px"></th>
         <th onclick="sortBy('id')">ID <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('name')">Name <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('zone')">Zone <span class="sort-arrow">↕</span></th>
@@ -427,9 +558,83 @@
       </tr>
     </thead>
     <tbody id="riderBody">
-      <tr><td colspan="16"><div class="empty-state"><div class="icon">🏍️</div>Upload a CSV to begin</div></td></tr>
+      <tr><td colspan="17"><div class="empty-state"><div class="icon">🏍️</div>Upload a CSV to begin</div></td></tr>
     </tbody>
   </table>
+</div>
+
+<!-- Rider detail side panel -->
+<div class="rider-panel-overlay" id="riderPanelOverlay" onclick="closeRiderPanel()"></div>
+<div class="rider-panel" id="riderPanel">
+  <div class="panel-inner">
+    <button class="panel-close-btn" onclick="closeRiderPanel()">✕</button>
+
+    <div class="panel-name" id="panelName">—</div>
+    <div class="panel-badges">
+      <span class="panel-status-badge" id="panelStatus">—</span>
+      <span class="panel-company" id="panelCompany">—</span>
+    </div>
+
+    <div class="panel-idrow">
+      <div>
+        <div class="lbl">Rider ID</div>
+        <div class="val" id="panelId">—</div>
+      </div>
+      <div style="text-align:right">
+        <div class="lbl">Phone</div>
+        <div class="val" id="panelPhone">—</div>
+      </div>
+    </div>
+
+    <div class="panel-section-title">Current Session</div>
+    <div class="panel-grid">
+      <div>
+        <div class="panel-field-label">Schedule</div>
+        <div class="panel-field-value" id="panelSchedule">—</div>
+      </div>
+      <div>
+        <div class="panel-field-label">Zone / SP</div>
+        <div class="panel-field-value" id="panelZone">—</div>
+      </div>
+      <div>
+        <div class="panel-field-label">Wallet</div>
+        <div class="panel-field-value" id="panelWallet">—</div>
+      </div>
+    </div>
+
+    <div class="panel-stat-box">
+      <div>
+        <div class="panel-stat-num" id="panelDeliveries">0</div>
+        <div class="panel-stat-lbl">Deliveries</div>
+      </div>
+      <div style="text-align:right">
+        <div class="panel-stat-num" id="panelUTR">0</div>
+        <div class="panel-stat-lbl">UTR</div>
+      </div>
+    </div>
+
+    <div class="panel-grid">
+      <div>
+        <div class="panel-field-label">Accept Rate</div>
+        <div class="panel-field-value" id="panelAR">—</div>
+      </div>
+      <div>
+        <div class="panel-field-label">Late Time</div>
+        <div class="panel-field-value" id="panelLate">—</div>
+      </div>
+      <div>
+        <div class="panel-field-label">Time Worked</div>
+        <div class="panel-field-value" id="panelTimeWorked">—</div>
+      </div>
+      <div>
+        <div class="panel-field-label">Breaks</div>
+        <div class="panel-field-value" id="panelBreaks">—</div>
+      </div>
+    </div>
+
+    <div class="panel-section-title" style="margin-top:16px;">Recent Orders</div>
+    <div id="panelOrders"></div>
+  </div>
 </div>
 
 <script>
@@ -574,6 +779,148 @@
     pushToGAS(text, 'paste');
   }
 
+  // ── Orders data (from bookmarklet) ──
+  let ordersData = {};
+
+  function loadOrdersFromStorage() {
+    try {
+      const saved = localStorage.getItem('riderOrdersData');
+      if (saved) ordersData = JSON.parse(saved);
+      const ts = localStorage.getItem('riderOrdersUpdated');
+      if (ts) document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + ts;
+    } catch (e) { ordersData = {}; }
+  }
+
+  function openOrdersModal() {
+    document.getElementById('ordersModal').style.display = 'flex';
+    document.getElementById('ordersPasteArea').focus();
+  }
+  function closeOrdersModal() {
+    document.getElementById('ordersModal').style.display = 'none';
+  }
+
+  function loadOrdersFromPaste() {
+    const text = document.getElementById('ordersPasteArea').value.trim();
+    if (!text) { alert('الصق الـ JSON اللي طلعه الـ bookmarklet الأول.'); return; }
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { alert('الـ JSON مش صحيح — تأكد إنك نسخت كل الناتج من الـ bookmarklet.'); return; }
+    ordersData = parsed;
+    try { localStorage.setItem('riderOrdersData', JSON.stringify(parsed)); } catch (e) {}
+    const ts = new Date().toLocaleTimeString();
+    try { localStorage.setItem('riderOrdersUpdated', ts); } catch (e) {}
+    document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + ts;
+    closeOrdersModal();
+    // If a rider panel is currently open, refresh it with the new data
+    const openPanelId = document.getElementById('panelId').textContent;
+    const openRider = riders.find(x => String(x.id) === String(openPanelId));
+    if (openRider && document.getElementById('riderPanel').classList.contains('open')) {
+      renderPanelOrders(openRider.id);
+    }
+    alert('اتحملت بيانات أوردرات ' + Object.keys(parsed).length + ' رايدر بنجاح.');
+  }
+
+  function orderStatusClass(status) {
+    if (status === 'completed') return 'completed';
+    if (status && status.indexOf('cancel') !== -1) return 'cancelled';
+    return 'other';
+  }
+
+  function isPastOrder(d) {
+    return d.status === 'completed' || (d.status && d.status.indexOf('cancel') !== -1);
+  }
+
+  function fmtTime(iso) {
+    return iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  }
+
+  function orderProgressCard(d) {
+    const stages = d.stages || {};
+    const steps = [
+      { key: 'accepted',     label: 'Accepted' },
+      { key: 'picked_up',    label: 'Picked up' },
+      { key: 'near_dropoff', label: 'Near drop off' },
+      { key: 'completed',    label: 'Delivered' }
+    ];
+    const stepsHtml = steps.map((s, i) => {
+      const done = !!stages[s.key];
+      return `
+        <div class="order-progress-step">
+          ${i > 0 ? `<div class="order-progress-line ${done ? 'done' : ''}"></div>` : ''}
+          <div class="order-progress-dot ${done ? 'done' : ''}"></div>
+          <div class="order-progress-label">${s.label}</div>
+          <div class="order-progress-time">${fmtTime(stages[s.key])}</div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="order-card">
+        <div class="order-card-top">
+          <span class="order-code">${d.order_code || '—'}</span>
+          <span class="order-status other">${(d.status || '—').replace(/_/g, ' ')}</span>
+        </div>
+        ${d.vendor_name ? `<div class="order-vendor">${d.vendor_name}</div>` : ''}
+        <div class="order-progress">${stepsHtml}</div>
+        <div class="order-addr"><b>Pickup:</b> ${d.pickup_address || '—'}</div>
+        <div class="order-addr"><b>Dropoff:</b> ${d.dropoff_address || '—'}</div>
+      </div>
+    `;
+  }
+
+  function pastOrderCard(d) {
+    return `
+      <div class="order-card">
+        <div class="order-card-top">
+          <span class="order-code">${d.order_code || '—'}</span>
+          <span class="order-status ${orderStatusClass(d.status)}">${(d.status || '—').replace(/_/g, ' ')}</span>
+        </div>
+        ${d.vendor_name ? `<div class="order-vendor">${d.vendor_name}</div>` : ''}
+        <div class="order-addr"><b>Pickup:</b> ${d.pickup_address || '—'}</div>
+        <div class="order-addr"><b>Dropoff:</b> ${d.dropoff_address || '—'}</div>
+      </div>
+    `;
+  }
+
+  function switchOrdersTab(el, tab) {
+    document.querySelectorAll('#panelOrders .orders-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('ordersTabOngoing').style.display = tab === 'ongoing' ? '' : 'none';
+    document.getElementById('ordersTabPast').style.display = tab === 'past' ? '' : 'none';
+  }
+
+  function renderPanelOrders(riderId) {
+    const container = document.getElementById('panelOrders');
+    const entry = ordersData[String(riderId)];
+    const deliveries = (entry && (entry.deliveries || entry.latest_deliveries)) || [];
+    if (!entry) {
+      container.innerHTML = '<div class="orders-empty">لسه مفيش بيانات أوردرات لحد كده. شغّل الـ bookmarklet وانت داخل على logisticsbackoffice.com وبعدين "📦 Load Orders" فوق.</div>';
+      return;
+    }
+    const past = deliveries.filter(isPastOrder);
+    const ongoing = deliveries.filter(d => !isPastOrder(d));
+    const riderName = entry.name || 'This rider';
+
+    const metaBits = [];
+    if (entry.updated_at) metaBits.push('Updated ' + new Date(entry.updated_at).toLocaleTimeString());
+    const metaHtml = metaBits.length ? `<div class="orders-meta">${metaBits.join(' · ')}</div>` : '';
+
+    const ongoingHtml = ongoing.length
+      ? ongoing.map(orderProgressCard).join('')
+      : `<div class="orders-empty" style="text-align:center;padding:22px 12px;">🛵<br/><br/>${riderName} is searching for orders now!</div>`;
+    const pastHtml = past.length
+      ? past.map(pastOrderCard).join('')
+      : '<div class="orders-empty">No past orders yet.</div>';
+
+    container.innerHTML = `
+      ${metaHtml}
+      <div class="orders-tabs">
+        <div class="orders-tab active" onclick="switchOrdersTab(this,'ongoing')">Ongoing orders</div>
+        <div class="orders-tab" onclick="switchOrdersTab(this,'past')">Past orders (${past.length})</div>
+      </div>
+      <div id="ordersTabOngoing">${ongoingHtml}</div>
+      <div id="ordersTabPast" style="display:none;">${pastHtml}</div>
+    `;
+  }
+
   function updateLastUpdated() {
     const t = (() => { try { return localStorage.getItem('riderLastUpdated'); } catch(e) { return null; } })();
     if (t) document.getElementById('lastUpdatedBar').textContent = '✅ Last updated: ' + t + '  |  Click "Paste Data" to refresh';
@@ -600,7 +947,58 @@
     }
   })();
 
+  // ── Sync Riders (from Rooster Live list API, via bookmarklet) ──
+  function loadRidersFromSync(arr) {
+    const overrides = JSON.parse((() => { try { return localStorage.getItem('zoneOverrides'); } catch(e) { return null; } })() || '{}');
+    riders = arr.map(r => {
+      const hc = lookupRider(r.id);
+      return {
+        ...r,
+        acceptRateNum: parseFloat(r.acceptRate) || 0,
+        zone: overrides[r.id] || r.zone || hc.zone,
+        sp: hc.sp,
+        company: hc.company,
+      };
+    });
+  }
+
+  function openSyncModal() {
+    document.getElementById('syncModal').style.display = 'flex';
+    document.getElementById('syncPasteArea').focus();
+  }
+  function closeSyncModal() {
+    document.getElementById('syncModal').style.display = 'none';
+  }
+
+  function loadFromSyncPaste() {
+    const text = document.getElementById('syncPasteArea').value.trim();
+    if (!text) { alert('الصق الـ JSON اللي طلعه الـ "Sync Riders" bookmarklet الأول.'); return; }
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { alert('الـ JSON مش صحيح — تأكد إنك نسخت كل الناتج من الـ bookmarklet.'); return; }
+    if (!Array.isArray(parsed) || !parsed.length) { alert('الشكل مش مظبوط — المفروض يكون array فيه الرايدرز.'); return; }
+    loadRidersFromSync(parsed);
+    try { localStorage.setItem('riderSyncData', JSON.stringify(parsed)); } catch (e) {}
+    const ts = new Date().toLocaleTimeString();
+    try { localStorage.setItem('riderSyncUpdated', ts); } catch (e) {}
+    closeSyncModal();
+    renderAll();
+    document.getElementById('lastUpdatedBar').textContent = '✅ Synced from Rooster Live: ' + ts + ' (' + parsed.length + ' riders)';
+  }
+
   function loadData() {
+    const savedSync = (() => { try { return localStorage.getItem('riderSyncData'); } catch (e) { return null; } })();
+    if (savedSync) {
+      try {
+        const parsed = JSON.parse(savedSync);
+        if (Array.isArray(parsed) && parsed.length) {
+          loadRidersFromSync(parsed);
+          renderAll();
+          const ts = (() => { try { return localStorage.getItem('riderSyncUpdated'); } catch (e) { return null; } })();
+          if (ts) document.getElementById('lastUpdatedBar').textContent = '✅ Synced from Rooster Live: ' + ts + ' (' + parsed.length + ' riders)';
+          return;
+        }
+      } catch (e) {}
+    }
     const saved = (() => { try { return localStorage.getItem('riderCSVData'); } catch(e) { return null; } })();
     if (saved) {
       const parsed = parseCSV(saved);
@@ -749,7 +1147,7 @@
     document.getElementById('riderCount').textContent = `${list.length} Rider${list.length !== 1 ? 's' : ''}`;
     const tbody = document.getElementById('riderBody');
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="16"><div class="empty-state"><div class="icon">🔍</div>No riders match.</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="17"><div class="empty-state"><div class="icon">🔍</div>No riders match.</div></td></tr>';
       return;
     }
     if (groupByField !== 'none') {
@@ -761,7 +1159,7 @@
       tbody.innerHTML = sorted.map(key => {
         const grp = groups[key];
         const icon = field === 'zone' ? '📍' : field === 'sp' ? '🏢' : '🏷️';
-        const header = `<tr class="zone-group-header"><td colspan="16">${icon} ${key} — ${grp.length} rider${grp.length !== 1 ? 's' : ''}</td></tr>`;
+        const header = `<tr class="zone-group-header"><td colspan="17">${icon} ${key} — ${grp.length} rider${grp.length !== 1 ? 's' : ''}</td></tr>`;
         return header + grp.map(r => riderRow(r)).join('');
       }).join('');
     } else {
@@ -772,7 +1170,8 @@
   function riderRow(r) {
     const zClass = r.zone === 'Maadi' ? 'zone-Maadi' : r.zone === 'Mokattam' ? 'zone-Mokattam' : 'zone-unknown';
     return `
-      <tr>
+      <tr onclick="openRiderPanel('${r.id}')">
+        <td onclick="event.stopPropagation()"><button class="view-btn" onclick="openRiderPanel('${r.id}')" title="View rider details">👁️</button></td>
         <td><div class="rider-id">${r.id}</div></td>
         <td><div class="rider-name">${(HEADCOUNT[String(r.id)] && HEADCOUNT[String(r.id)].fullName) || r.name}</div></td>
         <td><span class="zone-badge ${zClass}">${r.zone || '—'}</span></td>
@@ -793,6 +1192,45 @@
     `;
   }
 
+
+  // ── Rider detail side panel ──
+  function utrColor(v) { return v >= 2.2 ? '#4ade80' : v >= 1.5 ? '#fbbf24' : v > 0 ? '#f87171' : '#52525b'; }
+
+  function openRiderPanel(id) {
+    const r = riders.find(x => String(x.id) === String(id));
+    if (!r) return;
+    const fullName = (HEADCOUNT[String(r.id)] && HEADCOUNT[String(r.id)].fullName) || r.name;
+
+    document.getElementById('panelName').textContent = fullName || `Rider ${r.id}`;
+    const statusEl = document.getElementById('panelStatus');
+    statusEl.textContent = r.status || 'Unknown';
+    statusEl.className = 'panel-status-badge status-' + (r.status || 'Idle');
+    document.getElementById('panelCompany').textContent = 'Company: ' + (r.company || '—');
+    document.getElementById('panelId').textContent = r.id;
+    document.getElementById('panelPhone').textContent = r.phone ? '+' + r.phone.replace(/^\+/, '') : '—';
+    document.getElementById('panelSchedule').textContent = (r.sessionStart && r.sessionEnd) ? `${r.sessionStart} - ${r.sessionEnd}` : '—';
+    document.getElementById('panelZone').textContent = [r.zone, r.sp].filter(Boolean).join(', ') || '—';
+    document.getElementById('panelWallet').textContent = r.wallet || '—';
+    document.getElementById('panelDeliveries').textContent = r.deliveries ?? 0;
+    const utrEl = document.getElementById('panelUTR');
+    utrEl.textContent = r.utr ?? 0;
+    utrEl.style.color = utrColor(r.utr);
+    document.getElementById('panelAR').textContent = r.acceptRate || '—';
+    document.getElementById('panelLate').textContent = (r.lateTime && r.lateTime !== '0:00:00' && r.lateTime !== '00:00:00') ? r.lateTime : '0 mins';
+    document.getElementById('panelTimeWorked').textContent = r.timeWorked || '—';
+    document.getElementById('panelBreaks').textContent = `${r.breaks || 0} (${r.breakTime || '0:00:00'})`;
+    renderPanelOrders(r.id);
+
+    document.getElementById('riderPanelOverlay').classList.add('open');
+    document.getElementById('riderPanel').classList.add('open');
+  }
+
+  function closeRiderPanel() {
+    document.getElementById('riderPanelOverlay').classList.remove('open');
+    document.getElementById('riderPanel').classList.remove('open');
+  }
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRiderPanel(); });
 
   // ── GAS Sync ──
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwve-O4yZeN-fQYptRV-Z5SbzBUepcBrJn2rKokygBrf-P3R2x3tibeTlqOfoxrO90Xrw/exec';
@@ -836,6 +1274,7 @@
   }
 
   window.onload = async () => {
+    loadOrdersFromStorage();
     const ok = await fetchFromGAS();
     if (!ok) loadData();
   };
