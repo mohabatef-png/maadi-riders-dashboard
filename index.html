@@ -1001,6 +1001,13 @@
     try { localStorage.setItem('riderSyncData', JSON.stringify(parsed)); } catch (e) {}
     const ts = new Date().toLocaleTimeString();
     try { localStorage.setItem('riderSyncUpdated', ts); } catch (e) {}
+    // Keep the CSV-flow fallback keys in sync too. pushToGAS() falls back to
+    // reading riderCSVData/riderLastUpdated from localStorage whenever a caller
+    // (e.g. loadOrdersFromPaste) doesn't pass csv/lastUpdated explicitly. Without
+    // this, those keys stay empty after a Sync Riders load, so the next such
+    // push sends an empty csv and wipes the shared backend's rider data.
+    try { localStorage.setItem('riderCSVData', ridersToCSV(parsed)); } catch (e) {}
+    try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)'); } catch (e) {}
     closeSyncModal();
     renderAll();
     document.getElementById('lastUpdatedBar').textContent = '✅ Synced from Rooster Live: ' + ts + ' (' + parsed.length + ' riders)';
