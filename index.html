@@ -750,7 +750,7 @@
       renderAll();
       updateLastUpdated();
       event.target.value = '';
-      pushToGAS(text, file.name);
+      pushToGAS({ csv: text, lastUpdated: new Date().toLocaleTimeString() + ' (from ' + file.name + ')' });
     };
     reader.readAsText(file);
   }
@@ -776,7 +776,7 @@
     closePasteModal();
     renderAll();
     updateLastUpdated();
-    pushToGAS(text, 'paste');
+    pushToGAS({ csv: text, lastUpdated: new Date().toLocaleTimeString() + ' (from paste)' });
   }
 
   // ── Orders data (from bookmarklet) ──
@@ -817,6 +817,8 @@
       renderPanelOrders(openRider.id);
     }
     alert('اتحملت بيانات أوردرات ' + Object.keys(parsed).length + ' رايدر بنجاح.');
+    // Push to the shared backend so other people's "?view" links get the orders too.
+    pushToGAS({ orders: parsed, ordersUpdated: ts });
   }
 
   function orderStatusClass(status) {
@@ -970,6 +972,25 @@
     document.getElementById('syncModal').style.display = 'none';
   }
 
+  function csvField(v) {
+    const s = (v === undefined || v === null) ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  // Converts the "Sync Riders (Live)" JSON array into the same CSV layout
+  // parseCSV() expects, so it can be pushed to GAS and picked up by every
+  // other browser/device via fetchFromGAS() — not just the one that pasted it.
+  function ridersToCSV(list) {
+    const header = 'id,name,phone,session,utr,deliveries,timeWorked,acceptRate,wallet,breaks,breakTime,lateTime,status';
+    const rows = list.map(r => [
+      r.id, r.name, r.phone,
+      [r.sessionStart || '', r.sessionEnd || ''].join(' - '),
+      r.utr, r.deliveries, r.timeWorked, r.acceptRate, r.wallet,
+      r.breaks, r.breakTime, r.lateTime, r.status
+    ].map(csvField).join(','));
+    return [header, ...rows].join('\n');
+  }
+
   function loadFromSyncPaste() {
     const text = document.getElementById('syncPasteArea').value.trim();
     if (!text) { alert('الصق الـ JSON اللي طلعه الـ "Sync Riders" bookmarklet الأول.'); return; }
@@ -983,6 +1004,8 @@
     closeSyncModal();
     renderAll();
     document.getElementById('lastUpdatedBar').textContent = '✅ Synced from Rooster Live: ' + ts + ' (' + parsed.length + ' riders)';
+    // Push to the shared backend so other people's "?view" links update too.
+    pushToGAS({ csv: ridersToCSV(parsed), lastUpdated: ts + ' (from sync-riders-live)' });
   }
 
   function loadData() {
@@ -1237,15 +1260,24 @@
 
   function showSyncBadge(text, color) { /* silent sync - no UI badge */ }
 
-  async function pushToGAS(csvText, filename) {
+  // pushToGAS sends the FULL known state every time (riders csv + orders),
+  // filling in whichever part wasn't just changed from localStorage, so a
+  // riders-only push never wipes out orders on the shared backend and
+  // vice versa (the GAS endpoint just stores/returns the last JSON body).
+  async function pushToGAS(fields) {
     if (!GAS_URL) return;
     try {
-      const ts = new Date().toLocaleTimeString() + ' (from ' + filename + ')';
+      const payload = {
+        csv:           fields.csv           !== undefined ? fields.csv           : ((() => { try { return localStorage.getItem('riderCSVData') || ''; } catch(e) { return ''; } })()),
+        lastUpdated:   fields.lastUpdated   !== undefined ? fields.lastUpdated   : ((() => { try { return localStorage.getItem('riderLastUpdated') || ''; } catch(e) { return ''; } })()),
+        orders:        fields.orders        !== undefined ? fields.orders        : ordersData,
+        ordersUpdated: fields.ordersUpdated !== undefined ? fields.ordersUpdated : ((() => { try { return localStorage.getItem('riderOrdersUpdated') || ''; } catch(e) { return ''; } })())
+      };
       await fetch(GAS_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ csv: csvText, lastUpdated: ts })
+        body: JSON.stringify(payload)
       });
     } catch(e) {
     }
@@ -1256,6 +1288,7 @@
     try {
       const res = await fetch(GAS_URL, { redirect: 'follow' });
       const data = await res.json();
+      let gotRiders = false;
       if (data && data.csv && data.csv.length > 50) {
         const parsed = parseCSV(data.csv);
         if (parsed.length > 0) {
@@ -1264,10 +1297,16 @@
           try { localStorage.setItem('riderLastUpdated', data.lastUpdated || ''); } catch(e) {}
           renderAll();
           updateLastUpdated();
-              return true;
+          gotRiders = true;
         }
       }
-      return false;
+      if (data && data.orders && typeof data.orders === 'object' && Object.keys(data.orders).length) {
+        ordersData = data.orders;
+        try { localStorage.setItem('riderOrdersData', JSON.stringify(data.orders)); } catch(e) {}
+        try { localStorage.setItem('riderOrdersUpdated', data.ordersUpdated || ''); } catch(e) {}
+        if (data.ordersUpdated) document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + data.ordersUpdated;
+      }
+      return gotRiders;
     } catch(e) {
       return false;
     }
