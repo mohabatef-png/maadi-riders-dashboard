@@ -174,14 +174,19 @@
       display: flex; background: #09090b; border-bottom: 1px solid #27272a; padding: 0 28px;
     }
     .stat-card {
-      flex: 1; padding: 18px 0; text-align: center; position: relative;
+      flex: 1; padding: 18px 0; text-align: center; position: relative; cursor: pointer; transition: background .12s;
     }
+    .stat-card:hover { background: #131316; }
+    .stat-card.active { background: #1f1a15; box-shadow: inset 0 -3px 0 #ff6b35; }
     .stat-card + .stat-card::before {
       content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
       width: 1px; background: #27272a;
     }
     .stat-value { font-size: 30px; font-weight: 800; color: #fff; letter-spacing: -1px; }
     .stat-label { font-size: 10px; color: #52525b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+    .status-chip { cursor: pointer; transition: transform .1s; }
+    .status-chip:hover { transform: translateY(-1px); }
+    .status-chip.active { outline: 2px solid currentColor; }
 
     /* ── Toolbar ── */
     .toolbar {
@@ -492,14 +497,14 @@
 
 <!-- Stats -->
 <div class="stats-bar">
-  <div class="stat-card"><div class="stat-value" id="statTotal" style="color:#e4e4e7">—</div><div class="stat-label">Total Riders</div></div>
-  <div class="stat-card"><div class="stat-value" id="statWorking" style="color:#4ade80">—</div><div class="stat-label">Working</div></div>
-  <div class="stat-card"><div class="stat-value" id="statIdle" style="color:#fbbf24">—</div><div class="stat-label">Break</div></div>
-  <div class="stat-card"><div class="stat-value" id="statLate" style="color:#f87171">—</div><div class="stat-label">Late</div></div>
-  <div class="stat-card"><div class="stat-value" id="statEnding" style="color:#c4b5fd">—</div><div class="stat-label">Ending</div></div>
-  <div class="stat-card"><div class="stat-value" id="statAvgUTR">—</div><div class="stat-label">Avg UTR</div></div>
-  <div class="stat-card"><div class="stat-value" id="statDeliveries" style="color:#7dd3fc">—</div><div class="stat-label">Total Deliveries</div></div>
-  <div class="stat-card"><div class="stat-value" id="statActiveOrders" style="color:#ff6b35">—</div><div class="stat-label">Active Orders</div></div>
+  <div class="stat-card active" onclick="setFilter('all', this)"><div class="stat-value" id="statTotal" style="color:#e4e4e7">—</div><div class="stat-label">Total Riders</div></div>
+  <div class="stat-card" onclick="setFilter('Working', this)"><div class="stat-value" id="statWorking" style="color:#4ade80">—</div><div class="stat-label">Working</div></div>
+  <div class="stat-card" onclick="setFilter('BreakOrIdle', this)"><div class="stat-value" id="statIdle" style="color:#fbbf24">—</div><div class="stat-label">Break</div></div>
+  <div class="stat-card" onclick="setFilter('Late', this)"><div class="stat-value" id="statLate" style="color:#f87171">—</div><div class="stat-label">Late</div></div>
+  <div class="stat-card" onclick="setFilter('Ending', this)"><div class="stat-value" id="statEnding" style="color:#c4b5fd">—</div><div class="stat-label">Ending</div></div>
+  <div class="stat-card" style="cursor:default;"><div class="stat-value" id="statAvgUTR">—</div><div class="stat-label">Avg UTR</div></div>
+  <div class="stat-card" onclick="setFilter('has-orders', this)"><div class="stat-value" id="statDeliveries" style="color:#7dd3fc">—</div><div class="stat-label">Total Deliveries</div></div>
+  <div class="stat-card" onclick="setFilter('active-orders', this)"><div class="stat-value" id="statActiveOrders" style="color:#ff6b35">—</div><div class="stat-label">Active Orders</div></div>
 </div>
 
 <div id="activeOrdersBreakdown" style="display:none;padding:10px 16px;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #27272a;">
@@ -551,6 +556,7 @@
         <th>Phone</th>
         <th onclick="sortBy('utr')">UTR <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('deliveries')">Deliveries <span class="sort-arrow">↕</span></th>
+        <th>Order Status</th>
         <th onclick="sortBy('acceptRateNum')">Accept Rate <span class="sort-arrow">↕</span></th>
         <th>Session</th>
         <th onclick="sortBy('timeWorked')">Time Worked <span class="sort-arrow">↕</span></th>
@@ -562,7 +568,7 @@
       </tr>
     </thead>
     <tbody id="riderBody">
-      <tr><td colspan="17"><div class="empty-state"><div class="icon">🏍️</div>Upload a CSV to begin</div></td></tr>
+      <tr><td colspan="18"><div class="empty-state"><div class="icon">🏍️</div>Upload a CSV to begin</div></td></tr>
     </tbody>
   </table>
 </div>
@@ -867,7 +873,8 @@
     box.style.display = 'flex';
     const chips = entries.map(([status, count], i) => {
       const color = ACTIVE_STATUS_COLORS[i % ACTIVE_STATUS_COLORS.length];
-      return `<span style="display:inline-flex;align-items:center;gap:6px;background:${color}1f;color:${color};border:1px solid ${color}40;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;text-transform:capitalize;">${status}<span style="opacity:.85;">${count}</span></span>`;
+      const isActive = activeFilter === ('active-status:' + status);
+      return `<span class="status-chip${isActive ? ' active' : ''}" onclick="setFilter('active-status:${status.replace(/'/g, "\\'")}', this)" style="display:inline-flex;align-items:center;gap:6px;background:${color}1f;color:${color};border:1px solid ${color}40;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;text-transform:capitalize;">${status}<span style="opacity:.85;">${count}</span></span>`;
     }).join('');
     box.innerHTML = '<span style="font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Active by status:</span>' + chips;
   }
@@ -1174,11 +1181,25 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
   }
   function setFilter(f, btn) {
     activeFilter = f;
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.filter-btn, .stat-card, .status-chip').forEach(b => b.classList.remove('active'));
     const resetBtn = document.getElementById('resetFilterBtn');
     if (resetBtn) resetBtn.style.display = f === 'all' ? 'none' : '';
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
     applyFilters();
+  }
+
+  function riderActiveOrders(riderId) {
+    const entry = ordersData[String(riderId)];
+    if (!entry) return [];
+    const rawDeliveries = entry.deliveries || entry.latest_deliveries || [];
+    return normalizeDeliveries(rawDeliveries).filter(d => !isPastOrder(d));
+  }
+
+  function riderAllOrders(riderId) {
+    const entry = ordersData[String(riderId)];
+    if (!entry) return [];
+    const rawDeliveries = entry.deliveries || entry.latest_deliveries || [];
+    return normalizeDeliveries(rawDeliveries);
   }
 
   function applyFilters() {
@@ -1190,6 +1211,13 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
     if (activeFilter === 'utr-low')    list = list.filter(r => r.utr > 0 && r.utr < 1.8);
     else if (activeFilter === 'break-long') list = list.filter(r => r.status === 'Break' && breakMinutes(r.breakTime) > 30);
     else if (activeFilter === 'cashblock')  list = list.filter(r => walletNum(r.wallet) > 3000);
+    else if (activeFilter === 'BreakOrIdle') list = list.filter(r => r.status === 'Break' || r.status === 'Idle');
+    else if (activeFilter === 'active-orders') list = list.filter(r => riderActiveOrders(r.id).length > 0);
+    else if (activeFilter === 'has-orders') list = list.filter(r => riderAllOrders(r.id).length > 0);
+    else if (activeFilter.indexOf('active-status:') === 0) {
+      const label = activeFilter.slice('active-status:'.length);
+      list = list.filter(r => riderActiveOrders(r.id).some(d => (d.status || 'unknown').replace(/_/g, ' ') === label));
+    }
     else if (activeFilter !== 'all')   list = list.filter(r => r.status === activeFilter);
     if (zoneVal    !== 'all')   list = list.filter(r => r.zone    === zoneVal);
     if (spVal      !== 'all')   list = list.filter(r => r.sp      === spVal);
@@ -1236,7 +1264,7 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
     document.getElementById('riderCount').textContent = `${list.length} Rider${list.length !== 1 ? 's' : ''}`;
     const tbody = document.getElementById('riderBody');
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="17"><div class="empty-state"><div class="icon">🔍</div>No riders match.</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="18"><div class="empty-state"><div class="icon">🔍</div>No riders match.</div></td></tr>';
       return;
     }
     if (groupByField !== 'none') {
@@ -1248,12 +1276,28 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
       tbody.innerHTML = sorted.map(key => {
         const grp = groups[key];
         const icon = field === 'zone' ? '📍' : field === 'sp' ? '🏢' : '🏷️';
-        const header = `<tr class="zone-group-header"><td colspan="17">${icon} ${key} — ${grp.length} rider${grp.length !== 1 ? 's' : ''}</td></tr>`;
+        const header = `<tr class="zone-group-header"><td colspan="18">${icon} ${key} — ${grp.length} rider${grp.length !== 1 ? 's' : ''}</td></tr>`;
         return header + grp.map(r => riderRow(r)).join('');
       }).join('');
     } else {
       tbody.innerHTML = list.map(r => riderRow(r)).join('');
     }
+  }
+
+  function riderOrderStatusCell(riderId) {
+    const orders = riderAllOrders(riderId);
+    if (!orders.length) return '<span style="color:#3f3f46;">—</span>';
+    const counts = {};
+    orders.forEach(d => {
+      const label = (d.status || 'unknown').replace(/_/g, ' ');
+      const cls = orderStatusClass(d.status);
+      const key = label + '|' + cls;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return Object.entries(counts).map(([key, count]) => {
+      const [label, cls] = key.split('|');
+      return `<span class="order-status ${cls}" style="margin:1px 3px 1px 0;display:inline-block;">${label}${count > 1 ? ' ×' + count : ''}</span>`;
+    }).join('');
   }
 
   function riderRow(r) {
@@ -1269,6 +1313,7 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
         <td><div class="phone">${r.phone}</div></td>
         <td class="${utrClass(r.utr)}">${r.utr}</td>
         <td>${r.deliveries}</td>
+        <td>${riderOrderStatusCell(r.id)}</td>
         <td class="${arClass(r.acceptRateNum)}">${r.acceptRate || '—'}</td>
         <td>${r.sessionStart} – ${r.sessionEnd}</td>
         <td>${r.timeWorked || '—'}</td>
