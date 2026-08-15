@@ -1285,18 +1285,16 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
   }
 
   function riderOrderStatusCell(riderId) {
-    const orders = riderAllOrders(riderId);
+    const orders = riderActiveOrders(riderId);
     if (!orders.length) return '<span style="color:#3f3f46;">—</span>';
     const counts = {};
     orders.forEach(d => {
       const label = (d.status || 'unknown').replace(/_/g, ' ');
-      const cls = orderStatusClass(d.status);
-      const key = label + '|' + cls;
+      const key = label;
       counts[key] = (counts[key] || 0) + 1;
     });
-    return Object.entries(counts).map(([key, count]) => {
-      const [label, cls] = key.split('|');
-      return `<span class="order-status ${cls}" style="margin:1px 3px 1px 0;display:inline-block;">${label}${count > 1 ? ' ×' + count : ''}</span>`;
+    return Object.entries(counts).map(([label, count]) => {
+      return `<span class="order-status other" style="margin:1px 3px 1px 0;display:inline-block;">${label}${count > 1 ? ' ×' + count : ''}</span>`;
     }).join('');
   }
 
