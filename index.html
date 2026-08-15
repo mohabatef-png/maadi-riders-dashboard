@@ -844,6 +844,21 @@
     return d.status === 'completed' || (d.status && d.status.indexOf('cancel') !== -1);
   }
 
+  // The raw `status` field on an order can lag behind reality — the stages
+  // timeline (accepted/picked_up/near_dropoff/completed timestamps) is what
+  // actually reflects where the order is right now, so derive the current
+  // status from the furthest stage that has a timestamp instead of trusting
+  // `status` directly. Falls back to `status` only if there's no timeline.
+  function orderCurrentStatus(d) {
+    const stages = d.stages || {};
+    if (stages.cancelled) return 'cancelled';
+    if (stages.completed) return 'completed';
+    if (stages.near_dropoff) return 'near_dropoff';
+    if (stages.picked_up) return 'picked_up';
+    if (stages.accepted) return 'accepted';
+    return d.status || 'unknown';
+  }
+
   const ACTIVE_STATUS_COLORS = ['#ff6b35', '#4ade80', '#7dd3fc', '#fbbf24', '#c4b5fd', '#f87171', '#a1a1aa'];
 
   function updateActiveOrdersStats() {
@@ -855,7 +870,7 @@
       deliveries.forEach(d => {
         if (isPastOrder(d)) return;
         total++;
-        const key = (d.status || 'unknown').replace(/_/g, ' ');
+        const key = orderCurrentStatus(d).replace(/_/g, ' ');
         byStatus[key] = (byStatus[key] || 0) + 1;
       });
     });
@@ -906,7 +921,7 @@
       <div class="order-card">
         <div class="order-card-top">
           <span class="order-code">${d.order_code || '—'}</span>
-          <span class="order-status other">${(d.status || '—').replace(/_/g, ' ')}</span>
+          <span class="order-status other">${orderCurrentStatus(d).replace(/_/g, ' ')}</span>
         </div>
         ${d.vendor_name ? `<div class="order-vendor">${d.vendor_name}</div>` : ''}
         <div class="order-progress">${stepsHtml}</div>
@@ -1216,7 +1231,7 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
     else if (activeFilter === 'has-orders') list = list.filter(r => riderAllOrders(r.id).length > 0);
     else if (activeFilter.indexOf('active-status:') === 0) {
       const label = activeFilter.slice('active-status:'.length);
-      list = list.filter(r => riderActiveOrders(r.id).some(d => (d.status || 'unknown').replace(/_/g, ' ') === label));
+      list = list.filter(r => riderActiveOrders(r.id).some(d => orderCurrentStatus(d).replace(/_/g, ' ') === label));
     }
     else if (activeFilter !== 'all')   list = list.filter(r => r.status === activeFilter);
     if (zoneVal    !== 'all')   list = list.filter(r => r.zone    === zoneVal);
@@ -1289,7 +1304,7 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
     if (!orders.length) return '<span style="color:#3f3f46;">—</span>';
     const counts = {};
     orders.forEach(d => {
-      const label = (d.status || 'unknown').replace(/_/g, ' ');
+      const label = orderCurrentStatus(d).replace(/_/g, ' ');
       const key = label;
       counts[key] = (counts[key] || 0) + 1;
     });
