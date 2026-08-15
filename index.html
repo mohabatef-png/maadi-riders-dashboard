@@ -499,6 +499,11 @@
   <div class="stat-card"><div class="stat-value" id="statEnding" style="color:#c4b5fd">—</div><div class="stat-label">Ending</div></div>
   <div class="stat-card"><div class="stat-value" id="statAvgUTR">—</div><div class="stat-label">Avg UTR</div></div>
   <div class="stat-card"><div class="stat-value" id="statDeliveries" style="color:#7dd3fc">—</div><div class="stat-label">Total Deliveries</div></div>
+  <div class="stat-card"><div class="stat-value" id="statActiveOrders" style="color:#ff6b35">—</div><div class="stat-label">Active Orders</div></div>
+</div>
+
+<div id="activeOrdersBreakdown" style="display:none;padding:10px 16px;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #27272a;">
+  <span style="font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Active by status:</span>
 </div>
 
 <!-- Toolbar row 1: search + dropdowns -->
@@ -789,6 +794,7 @@
       const ts = localStorage.getItem('riderOrdersUpdated');
       if (ts) document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + ts;
     } catch (e) { ordersData = {}; }
+    updateActiveOrdersStats();
   }
 
   function openOrdersModal() {
@@ -809,6 +815,7 @@
     const ts = new Date().toLocaleTimeString();
     try { localStorage.setItem('riderOrdersUpdated', ts); } catch (e) {}
     document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + ts;
+    updateActiveOrdersStats();
     closeOrdersModal();
     // If a rider panel is currently open, refresh it with the new data
     const openPanelId = document.getElementById('panelId').textContent;
@@ -829,6 +836,40 @@
 
   function isPastOrder(d) {
     return d.status === 'completed' || (d.status && d.status.indexOf('cancel') !== -1);
+  }
+
+  const ACTIVE_STATUS_COLORS = ['#ff6b35', '#4ade80', '#7dd3fc', '#fbbf24', '#c4b5fd', '#f87171', '#a1a1aa'];
+
+  function updateActiveOrdersStats() {
+    let total = 0;
+    const byStatus = {};
+    Object.values(ordersData || {}).forEach(entry => {
+      const rawDeliveries = (entry && (entry.deliveries || entry.latest_deliveries)) || [];
+      const deliveries = normalizeDeliveries(rawDeliveries);
+      deliveries.forEach(d => {
+        if (isPastOrder(d)) return;
+        total++;
+        const key = (d.status || 'unknown').replace(/_/g, ' ');
+        byStatus[key] = (byStatus[key] || 0) + 1;
+      });
+    });
+
+    const totalEl = document.getElementById('statActiveOrders');
+    if (totalEl) totalEl.textContent = total;
+
+    const box = document.getElementById('activeOrdersBreakdown');
+    if (!box) return;
+    const entries = Object.entries(byStatus).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+      box.style.display = 'none';
+      return;
+    }
+    box.style.display = 'flex';
+    const chips = entries.map(([status, count], i) => {
+      const color = ACTIVE_STATUS_COLORS[i % ACTIVE_STATUS_COLORS.length];
+      return `<span style="display:inline-flex;align-items:center;gap:6px;background:${color}1f;color:${color};border:1px solid ${color}40;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;text-transform:capitalize;">${status}<span style="opacity:.85;">${count}</span></span>`;
+    }).join('');
+    box.innerHTML = '<span style="font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Active by status:</span>' + chips;
   }
 
   function fmtTime(iso) {
@@ -1395,6 +1436,7 @@ try { localStorage.setItem('riderLastUpdated', ts + ' (from sync-riders-live)');
           try { localStorage.setItem('riderOrdersData', JSON.stringify(orders)); } catch(e) {}
           try { localStorage.setItem('riderOrdersUpdated', ordersUpdated || ''); } catch(e) {}
           if (ordersUpdated) document.getElementById('ordersUpdatedBar').textContent = '📦 Orders last loaded: ' + ordersUpdated;
+          updateActiveOrdersStats();
         }
       }
       return gotRiders;
