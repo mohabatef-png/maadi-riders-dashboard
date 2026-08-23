@@ -1,0 +1,288 @@
+/* 3PL Follow-up — Late & Idle Riders (bookmarklet version)
+   Injects a full-screen overlay into the current page (must be run on
+   logisticsbackoffice.com so the live fetch has session cookies).
+   Host this file yourself (e.g. next to your other GitHub Pages tools)
+   and point the bookmarklet at its raw URL. */
+(function () {
+  'use strict';
+
+  // If already injected, just bring it to front instead of duplicating.
+  var existing = document.getElementById('tpl-root');
+  if (existing) { existing.style.display = 'block'; return; }
+
+  var LIVE_API_URL = 'https://eg.me.logisticsbackoffice.com/dashboard/v2/hurrier/active_couriers?zones=10228,10174,10215,10232,10231,10217,10227,10241,10001,10064,10002,10003,10130,10009,10161,10020,10135';
+  var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
+  var LS_PREFIX = 'tpl_idle_';
+
+  // ---------- styles (namespaced under #tpl-root) ----------
+  var style = document.createElement('style');
+  style.textContent = `
+    #tpl-root{position:fixed;inset:0;z-index:2147483647;background:rgba(6,7,10,.55);
+      font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+    #tpl-panel{position:absolute;top:20px;left:50%;transform:translateX(-50%);width:min(1180px,94vw);
+      max-height:92vh;overflow:auto;background:#0f1115;color:#e8eaed;border:1px solid #2a2f3a;
+      border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+    #tpl-panel *{box-sizing:border-box;}
+    #tpl-header{padding:16px 20px;border-bottom:1px solid #2a2f3a;display:flex;justify-content:space-between;align-items:flex-start;}
+    #tpl-header h1{margin:0 0 4px;font-size:18px;}
+    #tpl-header p{margin:0;color:#9aa1ac;font-size:12px;}
+    #tpl-close{background:#1e222b;color:#e8eaed;border:1px solid #2a2f3a;border-radius:8px;
+      width:32px;height:32px;cursor:pointer;font-size:16px;line-height:1;flex:none;}
+    #tpl-body{padding:16px 20px 30px;}
+    .tpl-panelbox{background:#171a21;border:1px solid #2a2f3a;border-radius:10px;padding:16px;margin-bottom:16px;}
+    #tpl-input{width:100%;min-height:110px;background:#1e222b;color:#e8eaed;border:1px solid #2a2f3a;
+      border-radius:8px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;resize:vertical;}
+    .tpl-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px;}
+    .tpl-btn{background:#ff5a1f;color:#fff;border:none;border-radius:8px;padding:9px 14px;
+      font-size:13px;font-weight:600;cursor:pointer;}
+    .tpl-btn.secondary{background:#1e222b;color:#e8eaed;border:1px solid #2a2f3a;}
+    .tpl-btn:disabled{opacity:.5;cursor:not-allowed;}
+    #tpl-status{font-size:12px;color:#9aa1ac;}
+    #tpl-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+    .tpl-stat{background:#171a21;border:1px solid #2a2f3a;border-radius:10px;padding:10px 14px;min-width:110px;}
+    .tpl-stat .n{font-size:20px;font-weight:700;}
+    .tpl-stat .l{font-size:10px;color:#9aa1ac;text-transform:uppercase;letter-spacing:.04em;}
+    .tpl-stat.late .n{color:#e34747;} .tpl-stat.idle .n{color:#e0a72c;}
+    .tpl-group h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px;}
+    .tpl-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:#1e222b;color:#9aa1ac;}
+    #tpl-body table{width:100%;border-collapse:collapse;font-size:12.5px;}
+    #tpl-body th,#tpl-body td{text-align:left;padding:7px 9px;border-bottom:1px solid #2a2f3a;}
+    #tpl-body th{color:#9aa1ac;font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;}
+    .tpl-tag{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600;}
+    .tpl-tag.late{background:rgba(227,71,71,.15);color:#e34747;}
+    .tpl-tag.idle{background:rgba(224,167,44,.15);color:#e0a72c;}
+    .tpl-empty{color:#9aa1ac;font-size:13px;padding:20px;text-align:center;}
+  `;
+  document.head.appendChild(style);
+
+  // ---------- markup ----------
+  var root = document.createElement('div');
+  root.id = 'tpl-root';
+  root.innerHTML = `
+    <div id="tpl-panel">
+      <div id="tpl-header">
+        <div>
+          <h1>3PL Follow-up — Late &amp; Idle Riders</h1>
+          <p>Fetch or paste Hurrier active-couriers data. Idle timers persist between refreshes in this browser.</p>
+        </div>
+        <button id="tpl-close" title="Close">✕</button>
+      </div>
+      <div id="tpl-body">
+        <div class="tpl-panelbox">
+          <textarea id="tpl-input" placeholder="Paste Hurrier couriers JSON here (or use Fetch Live Data)..."></textarea>
+          <div class="tpl-row">
+            <button id="tpl-parseBtn" class="tpl-btn">Parse &amp; Refresh</button>
+            <button id="tpl-fetchBtn" class="tpl-btn">Fetch Live Data (all zones)</button>
+            <label style="font-size:12px;color:#9aa1ac;display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="tpl-autoRefresh"> Auto-refresh every
+              <select id="tpl-refreshMins" style="background:#1e222b;color:#e8eaed;border:1px solid #2a2f3a;border-radius:6px;padding:2px 6px;">
+                <option value="2">2m</option><option value="3" selected>3m</option><option value="5">5m</option><option value="10">10m</option>
+              </select>
+            </label>
+            <button id="tpl-exportBtn" class="tpl-btn secondary" disabled>Export Excel (per 3PL)</button>
+            <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
+            <span id="tpl-status"></span>
+          </div>
+        </div>
+        <div id="tpl-statsRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+        <div id="tpl-results"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  document.getElementById('tpl-close').addEventListener('click', function () {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    root.remove();
+    style.remove();
+  });
+
+  // ---------- xlsx loader ----------
+  var xlsxReady = new Promise(function (resolve, reject) {
+    if (window.XLSX) return resolve();
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+
+  // ---------- idle timer storage ----------
+  function getIdleStart(id) { var v = localStorage.getItem(LS_PREFIX + id); return v ? parseInt(v, 10) : null; }
+  function setIdleStart(id, ts) { localStorage.setItem(LS_PREFIX + id, String(ts)); }
+  function clearIdleStart(id) { localStorage.removeItem(LS_PREFIX + id); }
+
+  function extractCouriers(raw) {
+    try {
+      var obj = JSON.parse(raw);
+      if (Array.isArray(obj.couriers)) return obj.couriers;
+      if (Array.isArray(obj)) return obj;
+    } catch (e) { /* fall through */ }
+    var couriers = [], depth = 0, start = -1;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw[i];
+      if (ch === '{') { if (depth === 0) start = i; depth++; }
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          var chunk = raw.slice(start, i + 1);
+          try { var o = JSON.parse(chunk); if (Array.isArray(o.couriers)) couriers.push.apply(couriers, o.couriers); } catch (e) {}
+          start = -1;
+        }
+      }
+    }
+    return couriers;
+  }
+
+  function fmtMins(ms) {
+    var m = Math.floor(ms / 60000), h = Math.floor(m / 60), r = m % 60;
+    return h > 0 ? (h + 'h ' + r + 'm') : (m + 'm');
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+    });
+  }
+
+  var lastFlagged = { late: [], idle: [] };
+
+  function process(couriers) {
+    var now = Date.now();
+    var late = [], idle = [];
+    couriers.forEach(function (entry) {
+      var c = entry.courier || {};
+      if (c.id == null) return;
+      var activeCount = entry.active_delivery_count != null ? entry.active_delivery_count : 0;
+      var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount };
+
+      if (c.status === 'late') {
+        late.push(Object.assign({}, base, { reason: 'Late' }));
+        clearIdleStart(c.id);
+        return;
+      }
+      if (c.status === 'working' && activeCount === 0) {
+        var start = getIdleStart(c.id);
+        if (start == null) { start = now; setIdleStart(c.id, start); }
+        var elapsed = now - start;
+        if (elapsed >= IDLE_THRESHOLD_MS) {
+          idle.push(Object.assign({}, base, { reason: 'Idle ' + fmtMins(elapsed), idleSince: new Date(start).toLocaleTimeString() }));
+        }
+      } else {
+        clearIdleStart(c.id);
+      }
+    });
+    lastFlagged = { late: late, idle: idle };
+    render(late, idle, couriers.length);
+  }
+
+  function groupBy3PL(list) {
+    var groups = {};
+    list.forEach(function (r) { (groups[r.contract] = groups[r.contract] || []).push(r); });
+    return groups;
+  }
+
+  function rowHtml(r, kind) {
+    return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.status) +
+      '</td><td>' + r.activeOrders + '</td><td><span class="tpl-tag ' + kind + '">' + esc(r.reason) + '</span></td></tr>';
+  }
+
+  function render(late, idle, totalCount) {
+    var statsRow = document.getElementById('tpl-statsRow');
+    statsRow.innerHTML =
+      '<div class="tpl-stat"><div class="n">' + totalCount + '</div><div class="l">Total riders</div></div>' +
+      '<div class="tpl-stat late"><div class="n">' + late.length + '</div><div class="l">Late</div></div>' +
+      '<div class="tpl-stat idle"><div class="n">' + idle.length + '</div><div class="l">Idle 30m+</div></div>';
+
+    var results = document.getElementById('tpl-results');
+    var lateGroups = groupBy3PL(late), idleGroups = groupBy3PL(idle);
+    var all3PLs = Array.from(new Set(Object.keys(lateGroups).concat(Object.keys(idleGroups)))).sort();
+
+    if (all3PLs.length === 0) {
+      results.innerHTML = '<div class="tpl-panelbox"><div class="tpl-empty">No late or idle riders right now. 🎉</div></div>';
+      document.getElementById('tpl-exportBtn').disabled = true;
+      return;
+    }
+
+    results.innerHTML = all3PLs.map(function (pl) {
+      var lateRows = (lateGroups[pl] || []).map(function (r) { return rowHtml(r, 'late'); }).join('');
+      var idleRows = (idleGroups[pl] || []).map(function (r) { return rowHtml(r, 'idle'); }).join('');
+      var count = (lateGroups[pl] || []).length + (idleGroups[pl] || []).length;
+      return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + count + ' flagged</span></h2>' +
+        '<table><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Orders</th><th>Reason</th></tr></thead><tbody>' +
+        lateRows + idleRows + '</tbody></table></div>';
+    }).join('');
+
+    document.getElementById('tpl-exportBtn').disabled = false;
+  }
+
+  document.getElementById('tpl-parseBtn').addEventListener('click', function () {
+    var raw = document.getElementById('tpl-input').value.trim();
+    var statusLine = document.getElementById('tpl-status');
+    if (!raw) { statusLine.textContent = 'Paste JSON first.'; return; }
+    try {
+      var couriers = extractCouriers(raw);
+      if (couriers.length === 0) { statusLine.textContent = 'No couriers found in pasted data.'; return; }
+      process(couriers);
+      statusLine.textContent = 'Parsed ' + couriers.length + ' riders at ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      statusLine.textContent = 'Could not parse JSON: ' + e.message;
+    }
+  });
+
+  document.getElementById('tpl-resetBtn').addEventListener('click', function () {
+    Object.keys(localStorage).filter(function (k) { return k.indexOf(LS_PREFIX) === 0; }).forEach(function (k) { localStorage.removeItem(k); });
+    document.getElementById('tpl-status').textContent = 'Idle timers reset.';
+  });
+
+  function fetchLive() {
+    var statusLine = document.getElementById('tpl-status');
+    statusLine.textContent = 'Fetching live data...';
+    fetch(LIVE_API_URL, { credentials: 'include' })
+      .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function (data) {
+        var couriers = Array.isArray(data.couriers) ? data.couriers : [];
+        if (couriers.length === 0) { statusLine.textContent = 'Fetched OK but no couriers in response.'; return; }
+        document.getElementById('tpl-input').value = JSON.stringify(data);
+        process(couriers);
+        statusLine.textContent = 'Fetched ' + couriers.length + ' riders live at ' + new Date().toLocaleTimeString();
+      })
+      .catch(function (e) {
+        statusLine.textContent = 'Live fetch failed (' + e.message + '). Make sure you are logged in on this domain.';
+      });
+  }
+
+  var autoRefreshTimer = null;
+  document.getElementById('tpl-autoRefresh').addEventListener('change', function (e) {
+    if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+    if (e.target.checked) {
+      var mins = parseInt(document.getElementById('tpl-refreshMins').value, 10);
+      autoRefreshTimer = setInterval(fetchLive, mins * 60 * 1000);
+      fetchLive();
+    }
+  });
+  document.getElementById('tpl-refreshMins').addEventListener('change', function () {
+    if (document.getElementById('tpl-autoRefresh').checked) {
+      document.getElementById('tpl-autoRefresh').dispatchEvent(new Event('change'));
+    }
+  });
+  document.getElementById('tpl-fetchBtn').addEventListener('click', fetchLive);
+
+  document.getElementById('tpl-exportBtn').addEventListener('click', function () {
+    xlsxReady.then(function () {
+      var wb = XLSX.utils.book_new();
+      var groups = groupBy3PL(lastFlagged.late.concat(lastFlagged.idle));
+      Object.keys(groups).sort().forEach(function (pl) {
+        var rows = groups[pl].map(function (r) {
+          return { Name: r.name, Phone: r.phone, Status: r.status, 'Active Orders': r.activeOrders, Reason: r.reason };
+        });
+        var ws = XLSX.utils.json_to_sheet(rows);
+        var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+        XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
+      });
+      XLSX.writeFile(wb, '3PL_followup_' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.xlsx');
+    }).catch(function () {
+      document.getElementById('tpl-status').textContent = 'Could not load Excel export library.';
+    });
+  });
+})();
