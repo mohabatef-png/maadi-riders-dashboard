@@ -10,7 +10,8 @@
   var existing = document.getElementById('tpl-root');
   if (existing) { existing.style.display = 'block'; return; }
 
-  var LIVE_API_URL = 'https://eg.me.logisticsbackoffice.com/dashboard/v2/hurrier/active_couriers?zones=10228,10174,10215,10232,10231,10217,10227,10241,10001,10064,10002,10003,10130,10009,10161,10020,10135';
+  var API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/couriers?starting_point_id=';
+  var STARTING_POINT_IDS = ['10228','10174','10215','10232','10231','10217','10227','10241','10001','10064','10002','10003','10130','10009','10161','10020','10135'];
   var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
   var LS_PREFIX = 'tpl_idle_';
 
@@ -237,25 +238,26 @@
 
   function fetchLive() {
     var statusLine = document.getElementById('tpl-status');
-    statusLine.textContent = 'Fetching live data...';
-    fetch(LIVE_API_URL, {
+    statusLine.textContent = 'Fetching live data (' + STARTING_POINT_IDS.length + ' starting points)...';
+    var fetchOpts = {
       credentials: 'include',
       headers: {
         'Accept': 'application/json, text/plain, */*',
         'X-Requested-With': 'XMLHttpRequest'
       }
-    })
-      .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-      .then(function (data) {
-        var couriers = Array.isArray(data.couriers) ? data.couriers : [];
-        if (couriers.length === 0) { statusLine.textContent = 'Fetched OK but no couriers in response.'; return; }
-        document.getElementById('tpl-input').value = JSON.stringify(data);
-        process(couriers);
-        statusLine.textContent = 'Fetched ' + couriers.length + ' riders live at ' + new Date().toLocaleTimeString();
-      })
-      .catch(function (e) {
-        statusLine.textContent = 'Live fetch failed (' + e.message + '). Make sure you are logged in on this domain.';
-      });
+    };
+    Promise.all(STARTING_POINT_IDS.map(function (spId) {
+      return fetch(API_BASE + spId, fetchOpts)
+        .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status + ' for SP ' + spId); return res.json(); })
+        .then(function (data) { return Array.isArray(data.couriers) ? data.couriers : []; })
+        .catch(function (e) { console.warn('3PL tool: failed to fetch SP', spId, e); return []; });
+    })).then(function (results) {
+      var couriers = [].concat.apply([], results);
+      if (couriers.length === 0) { statusLine.textContent = 'Fetched but got 0 couriers total \u2014 check console for per-SP errors.'; return; }
+      document.getElementById('tpl-input').value = JSON.stringify({ couriers: couriers });
+      process(couriers);
+      statusLine.textContent = 'Fetched ' + couriers.length + ' riders live at ' + new Date().toLocaleTimeString();
+    });
   }
 
   var autoRefreshTimer = null;
