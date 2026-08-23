@@ -74,8 +74,11 @@
     .tpl-stat.late .n{color:#e34747;} .tpl-stat.idle .n{color:#e0a72c;}
     .tpl-stat.tpl-clickable{cursor:pointer;transition:border-color .15s,transform .1s;}
     .tpl-stat.tpl-clickable:hover{border-color:#ff5a1f;transform:translateY(-1px);}
-    .tpl-filter-bar{font-size:12px;color:#9aa1ac;margin-bottom:12px;display:flex;align-items:center;gap:10px;}
+    .tpl-stat.tpl-active{border-color:#ff5a1f;box-shadow:0 0 0 1px #ff5a1f inset;}
+    .tpl-filter-bar{font-size:12px;color:#9aa1ac;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
     .tpl-filter-bar strong{color:#e8eaed;}
+    #tpl-body th.tpl-sortable{cursor:pointer;user-select:none;}
+    #tpl-body th.tpl-sortable:hover{color:#e8eaed;}
     .tpl-group h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px;}
     .tpl-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:#1e222b;color:#9aa1ac;}
     #tpl-body table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -118,7 +121,8 @@
             <span id="tpl-status"></span>
           </div>
         </div>
-        <div id="tpl-statsRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+        <div id="tpl-statsRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;"></div>
+        <div id="tpl-zoneRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
         <div id="tpl-results"></div>
       </div>
     </div>
@@ -229,9 +233,9 @@
     // sort idle list longest-idle first so the worst cases are on top
     idleAll.sort(function (a, b) { return b.elapsedMs - a.elapsedMs; });
     var idleFlagged = idleAll.filter(function (r) { return r.flagged; });
-    lastFlagged = { late: late, idle: idleFlagged };
+    lastFlagged = { late: late, idle: idleFlagged, lateAll: late, idleAllView: idleAll };
     lastAllRows = allRows;
-    render(late, idleAll, couriers.length, statusCounts); // preserves activeFilter across refreshes
+    renderAll(); // preserves activeFilter/activeZone/sort across refreshes
   }
 
   function groupBy3PL(list) {
@@ -251,11 +255,41 @@
   }
 
   var STATUS_LABELS = { working: 'Working', break: 'Break', late: 'Late', ending: 'Ending', starting: 'Starting', temp_not_working: 'Temp not working', unknown: 'Unknown' };
+  var ZONE_ORDER = ['Maadi', 'Mokattam', 'Helwan'];
+  var SORT_COLS = [['Name', 'name'], ['Phone', 'phone'], ['Zone', 'zone'], ['Status', 'status'], ['Orders', 'activeOrders'], ['Reason', 'reason']];
   var activeFilter = null; // status key currently filtered on, or null for the default Late&Idle view
-  var lastStatusCounts = {};
+  var activeZone = null;   // zone name currently filtered on, or null for all zones
+  var sortKey = null, sortDir = 'asc';
+
+  function zoneFilteredRows(rows) {
+    if (activeZone === null) return rows;
+    return rows.filter(function (r) { return r.zone === activeZone; });
+  }
+
+  function sortRows(rows) {
+    if (!sortKey) return rows;
+    var copy = rows.slice();
+    copy.sort(function (a, b) {
+      var av = a[sortKey], bv = b[sortKey];
+      if (sortKey === 'activeOrders') { av = Number(av) || 0; bv = Number(bv) || 0; }
+      else { av = String(av == null ? '' : av).toLowerCase(); bv = String(bv == null ? '' : bv).toLowerCase(); }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return copy;
+  }
+
+  function theadHtml() {
+    return '<thead><tr>' + SORT_COLS.map(function (c) {
+      var arrow = sortKey === c[1] ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+      return '<th class="tpl-sortable" data-sort="' + c[1] + '">' + c[0] + arrow + '</th>';
+    }).join('') + '</tr></thead>';
+  }
 
   function renderTableGroups(rows, kindFn) {
-    var groups = groupBy3PL(rows);
+    var sorted = sortRows(rows);
+    var groups = groupBy3PL(sorted);
     var all3PLs = Object.keys(groups).sort();
     if (all3PLs.length === 0) {
       return '<div class="tpl-panelbox"><div class="tpl-empty">No riders in this view. 🎉</div></div>';
@@ -263,63 +297,107 @@
     return all3PLs.map(function (pl) {
       var rowsHtml = groups[pl].map(function (r) { return rowHtml(r, kindFn(r)); }).join('');
       return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + groups[pl].length + ' total</span></h2>' +
-        '<table><thead><tr><th>Name</th><th>Phone</th><th>Zone</th><th>Status</th><th>Orders</th><th>Reason</th></tr></thead><tbody>' +
-        rowsHtml + '</tbody></table></div>';
+        '<table>' + theadHtml() + '<tbody>' + rowsHtml + '</tbody></table></div>';
     }).join('');
   }
 
   function renderResults() {
     var results = document.getElementById('tpl-results');
     var exportBtn = document.getElementById('tpl-exportBtn');
+    var zoneBit = activeZone ? (' in <strong>' + esc(activeZone) + '</strong>') : '';
+    var clearZoneBtn = activeZone ? ' <button id="tpl-clearZone" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Clear zone</button>' : '';
 
     if (activeFilter === null) {
       // default view: Late & Idle
+      var rows = zoneFilteredRows((lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []));
       results.innerHTML =
-        '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong> <span class="tpl-badge">click a stat above to filter by status</span></div>' +
-        renderTableGroups((lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []), function (r) { return r.status === 'late' ? 'late' : (r.flagged ? 'idle' : 'idle-mild'); });
-      exportBtn.disabled = ((lastFlagged.lateAll || []).length + (lastFlagged.idleAllView || []).length) === 0;
-      return;
+        '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong>' + zoneBit + clearZoneBtn +
+        ' <span class="tpl-badge">click a stat above to filter by status, or a zone to filter by zone</span></div>' +
+        renderTableGroups(rows, function (r) { return r.status === 'late' ? 'late' : (r.flagged ? 'idle' : 'idle-mild'); });
+      exportBtn.disabled = rows.length === 0;
+    } else {
+      var filtered = zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
+      var label = STATUS_LABELS[activeFilter] || activeFilter;
+      results.innerHTML =
+        '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong>' + zoneBit + ' (' + filtered.length + ') ' +
+        '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
+        renderTableGroups(filtered, function (r) { return kindForStatus(r.status); });
+      exportBtn.disabled = filtered.length === 0;
     }
-
-    var filtered = lastAllRows.filter(function (r) { return r.status === activeFilter; });
-    var label = STATUS_LABELS[activeFilter] || activeFilter;
-    results.innerHTML =
-      '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong> (' + filtered.length + ') ' +
-      '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button></div>' +
-      renderTableGroups(filtered, function (r) { return kindForStatus(r.status); });
-    exportBtn.disabled = filtered.length === 0;
 
     var clearBtn = document.getElementById('tpl-clearFilter');
     if (clearBtn) clearBtn.addEventListener('click', function () { activeFilter = null; renderResults(); });
+    var clearZone = document.getElementById('tpl-clearZone');
+    if (clearZone) clearZone.addEventListener('click', function () { activeZone = null; renderAll(); });
   }
 
-  function render(late, idleAll, totalCount, statusCounts) {
-    lastStatusCounts = statusCounts;
+  function renderStatsRow() {
     var statsRow = document.getElementById('tpl-statsRow');
-    var idleFlaggedCount = idleAll.filter(function (r) { return r.flagged; }).length;
-
-    // keep the full idle/late lists (not just flagged) available for the default view + export
-    lastFlagged.lateAll = late;
-    lastFlagged.idleAllView = idleAll;
+    var rows = zoneFilteredRows(lastAllRows);
+    var statusCounts = {};
+    rows.forEach(function (r) { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
+    var idleFlaggedCount = rows.filter(function (r) { return r.flagged; }).length;
 
     var statusStatsHtml = Object.keys(statusCounts).sort().map(function (st) {
-      return '<div class="tpl-stat tpl-clickable" data-status="' + esc(st) + '"><div class="n">' + statusCounts[st] + '</div><div class="l">' + esc(STATUS_LABELS[st] || st) + '</div></div>';
+      var active = activeFilter === st ? ' tpl-active' : '';
+      return '<div class="tpl-stat tpl-clickable' + active + '" data-status="' + esc(st) + '"><div class="n">' + statusCounts[st] + '</div><div class="l">' + esc(STATUS_LABELS[st] || st) + '</div></div>';
     }).join('');
 
     statsRow.innerHTML =
-      '<div class="tpl-stat"><div class="n">' + totalCount + '</div><div class="l">Total riders</div></div>' +
+      '<div class="tpl-stat"><div class="n">' + rows.length + '</div><div class="l">Total riders</div></div>' +
       statusStatsHtml +
       '<div class="tpl-stat idle"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (flagged)</div></div>';
 
     Array.prototype.forEach.call(statsRow.querySelectorAll('.tpl-clickable'), function (el) {
       el.addEventListener('click', function () {
-        activeFilter = el.getAttribute('data-status');
-        renderResults();
+        var st = el.getAttribute('data-status');
+        activeFilter = (activeFilter === st) ? null : st; // click again to clear
+        renderAll();
       });
     });
+  }
 
+  function renderZoneStats() {
+    var zoneRow = document.getElementById('tpl-zoneRow');
+    var counts = {};
+    lastAllRows.forEach(function (r) { counts[r.zone] = (counts[r.zone] || 0) + 1; });
+    var zones = Object.keys(counts).sort(function (a, b) {
+      var ai = ZONE_ORDER.indexOf(a), bi = ZONE_ORDER.indexOf(b);
+      if (ai === -1) ai = 100;
+      if (bi === -1) bi = 100;
+      if (ai !== bi) return ai - bi;
+      return a.localeCompare(b);
+    });
+
+    zoneRow.innerHTML = zones.map(function (z) {
+      var active = activeZone === z ? ' tpl-active' : '';
+      return '<div class="tpl-stat tpl-clickable' + active + '" data-zone="' + esc(z) + '"><div class="n">' + counts[z] + '</div><div class="l">' + esc(z) + '</div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(zoneRow.querySelectorAll('.tpl-clickable'), function (el) {
+      el.addEventListener('click', function () {
+        var z = el.getAttribute('data-zone');
+        activeZone = (activeZone === z) ? null : z; // click again to clear
+        renderAll();
+      });
+    });
+  }
+
+  function renderAll() {
+    renderStatsRow();
+    renderZoneStats();
     renderResults();
   }
+
+  // column-header sort clicks (event delegation so it survives re-renders)
+  document.getElementById('tpl-results').addEventListener('click', function (e) {
+    var th = e.target.closest ? e.target.closest('th[data-sort]') : null;
+    if (!th) return;
+    var key = th.getAttribute('data-sort');
+    if (sortKey === key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+    else { sortKey = key; sortDir = 'asc'; }
+    renderResults();
+  });
 
   document.getElementById('tpl-parseBtn').addEventListener('click', function () {
     var raw = document.getElementById('tpl-input').value.trim();
@@ -391,10 +469,10 @@
       var wb = XLSX.utils.book_new();
       // export whatever is currently on screen: the active status filter,
       // or the default Late & Idle view when no filter is active
-      var exportRows = activeFilter === null
+      var exportRows = zoneFilteredRows(activeFilter === null
         ? (lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || [])
-        : lastAllRows.filter(function (r) { return r.status === activeFilter; });
-      var groups = groupBy3PL(exportRows);
+        : lastAllRows.filter(function (r) { return r.status === activeFilter; }));
+      var groups = groupBy3PL(sortRows(exportRows));
       Object.keys(groups).sort().forEach(function (pl) {
         var rows = groups[pl].map(function (r) {
           return { Name: r.name, Phone: r.phone, Zone: r.zone, Status: r.status, 'Active Orders': r.activeOrders, Reason: r.reason };
@@ -403,7 +481,7 @@
         var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
         XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
       });
-      var suffix = activeFilter === null ? 'late_idle' : activeFilter;
+      var suffix = (activeFilter === null ? 'late_idle' : activeFilter) + (activeZone ? ('_' + activeZone) : '');
       XLSX.writeFile(wb, '3PL_followup_' + suffix + '_' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.xlsx');
     }).catch(function () {
       document.getElementById('tpl-status').textContent = 'Could not load Excel export library.';
