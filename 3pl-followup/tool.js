@@ -52,6 +52,7 @@
     .tpl-tag{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600;}
     .tpl-tag.late{background:rgba(227,71,71,.15);color:#e34747;}
     .tpl-tag.idle{background:rgba(224,167,44,.15);color:#e0a72c;}
+    .tpl-tag.idle-mild{background:rgba(154,161,172,.15);color:#9aa1ac;}
     .tpl-empty{color:#9aa1ac;font-size:13px;padding:20px;text-align:center;}
   `;
   document.head.appendChild(style);
@@ -150,10 +151,15 @@
 
   function process(couriers) {
     var now = Date.now();
-    var late = [], idle = [];
+    var late = [], idleAll = [];
+    var statusCounts = {};
+
     couriers.forEach(function (entry) {
       var c = entry.courier || {};
       if (c.id == null) return;
+      var st = c.status || 'unknown';
+      statusCounts[st] = (statusCounts[st] || 0) + 1;
+
       var activeCount = entry.active_delivery_count != null ? entry.active_delivery_count : 0;
       var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount };
 
@@ -166,15 +172,23 @@
         var start = getIdleStart(c.id);
         if (start == null) { start = now; setIdleStart(c.id, start); }
         var elapsed = now - start;
-        if (elapsed >= IDLE_THRESHOLD_MS) {
-          idle.push(Object.assign({}, base, { reason: 'Idle ' + fmtMins(elapsed), idleSince: new Date(start).toLocaleTimeString() }));
-        }
+        var flagged = elapsed >= IDLE_THRESHOLD_MS;
+        idleAll.push(Object.assign({}, base, {
+          reason: 'Idle ' + fmtMins(elapsed),
+          idleSince: new Date(start).toLocaleTimeString(),
+          elapsedMs: elapsed,
+          flagged: flagged
+        }));
       } else {
         clearIdleStart(c.id);
       }
     });
-    lastFlagged = { late: late, idle: idle };
-    render(late, idle, couriers.length);
+
+    // sort idle list longest-idle first so the worst cases are on top
+    idleAll.sort(function (a, b) { return b.elapsedMs - a.elapsedMs; });
+    var idleFlagged = idleAll.filter(function (r) { return r.flagged; });
+    lastFlagged = { late: late, idle: idleFlagged };
+    render(late, idleAll, couriers.length, statusCounts);
   }
 
   function groupBy3PL(list) {
@@ -188,15 +202,24 @@
       '</td><td>' + r.activeOrders + '</td><td><span class="tpl-tag ' + kind + '">' + esc(r.reason) + '</span></td></tr>';
   }
 
-  function render(late, idle, totalCount) {
+  var STATUS_LABELS = { working: 'Working', break: 'Break', late: 'Late', ending: 'Ending', temp_not_working: 'Temp not working', unknown: 'Unknown' };
+
+  function render(late, idleAll, totalCount, statusCounts) {
     var statsRow = document.getElementById('tpl-statsRow');
+    var idleFlaggedCount = idleAll.filter(function (r) { return r.flagged; }).length;
+
+    var statusStatsHtml = Object.keys(statusCounts).sort().map(function (st) {
+      return '<div class="tpl-stat"><div class="n">' + statusCounts[st] + '</div><div class="l">' + esc(STATUS_LABELS[st] || st) + '</div></div>';
+    }).join('');
+
     statsRow.innerHTML =
       '<div class="tpl-stat"><div class="n">' + totalCount + '</div><div class="l">Total riders</div></div>' +
+      statusStatsHtml +
       '<div class="tpl-stat late"><div class="n">' + late.length + '</div><div class="l">Late</div></div>' +
-      '<div class="tpl-stat idle"><div class="n">' + idle.length + '</div><div class="l">Idle 30m+</div></div>';
+      '<div class="tpl-stat idle"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (flagged)</div></div>';
 
     var results = document.getElementById('tpl-results');
-    var lateGroups = groupBy3PL(late), idleGroups = groupBy3PL(idle);
+    var lateGroups = groupBy3PL(late), idleGroups = groupBy3PL(idleAll);
     var all3PLs = Array.from(new Set(Object.keys(lateGroups).concat(Object.keys(idleGroups)))).sort();
 
     if (all3PLs.length === 0) {
@@ -207,9 +230,10 @@
 
     results.innerHTML = all3PLs.map(function (pl) {
       var lateRows = (lateGroups[pl] || []).map(function (r) { return rowHtml(r, 'late'); }).join('');
-      var idleRows = (idleGroups[pl] || []).map(function (r) { return rowHtml(r, 'idle'); }).join('');
-      var count = (lateGroups[pl] || []).length + (idleGroups[pl] || []).length;
-      return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + count + ' flagged</span></h2>' +
+      var idleRows = (idleGroups[pl] || []).map(function (r) { return rowHtml(r, r.flagged ? 'idle' : 'idle-mild'); }).join('');
+      var flaggedCount = (lateGroups[pl] || []).length + (idleGroups[pl] || []).filter(function (r) { return r.flagged; }).length;
+      var totalPl = (lateGroups[pl] || []).length + (idleGroups[pl] || []).length;
+      return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + flaggedCount + ' flagged / ' + totalPl + ' total</span></h2>' +
         '<table><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Orders</th><th>Reason</th></tr></thead><tbody>' +
         lateRows + idleRows + '</tbody></table></div>';
     }).join('');
