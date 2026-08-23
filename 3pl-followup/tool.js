@@ -20,22 +20,22 @@
   // ?starting_point_id=10228, while switching zones in the sidebar).
   // Any starting_point_id not listed here falls back to "Zone " + id.
   var ZONE_MAP = {
-    '10228': 'Maadi',
-    '10174': 'Maadi',
-    '10215': 'Maadi',
-    '10232': 'Maadi',
-    '10231': 'Maadi',
-    '10217': 'Mokattam',
-    '10227': 'Mokattam',
-    '10241': 'Mokattam',
-    '10001': 'Mokattam',
-    '10064': 'Helwan',
-    '10002': 'Helwan',
-    '10003': 'Helwan',
-    '10130': 'Helwan',
-    '10009': 'Helwan',
-    '10161': 'Helwan',
-    '10020': 'Helwan',
+    '10174': 'Maadi',    // Hybrid fleet maadi
+    '10228': 'Maadi',    // Hybrid fleet maadi laselky
+    '10215': 'Maadi',    // Hybrid fleet maadi meraag
+    '10232': 'Maadi',    // Hybrid fleet maadi old
+    '10130': 'Maadi',    // Maadi nesting sp
+    '10002': 'Maadi',    // New maadi
+    '10003': 'Maadi',    // Old maadi
+    '10009': 'Maadi',    // Zahraa maadi and meraag
+    '10161': 'Maadi',    // Zahraa maadi nesting
+    '10231': 'Mokattam', // Hybrid fleet mokattam easy sports
+    '10217': 'Mokattam', // Hybrid fleet mokattam mafarik
+    '10227': 'Mokattam', // Hybrid fleet mokattam nafora
+    '10001': 'Mokattam', // Mokattam sp
+    '10064': 'Mokattam', // Mokkatam asmarat sp
+    '10020': 'Helwan',   // Helwan SP
+    '10241': 'Helwan',
     '10135': 'Helwan'
   };
   function zoneNameFor(spId) {
@@ -122,7 +122,11 @@
           </div>
         </div>
         <div id="tpl-statsRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;"></div>
-        <div id="tpl-zoneRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+        <div id="tpl-zoneRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div style="margin-bottom:16px;">
+          <button id="tpl-debugZonesBtn" class="tpl-btn secondary" style="padding:4px 10px;font-size:11px;">Show raw starting-point IDs (for zone mapping)</button>
+          <div id="tpl-debugZones" style="display:none;flex-wrap:wrap;gap:8px;margin-top:10px;"></div>
+        </div>
         <div id="tpl-results"></div>
       </div>
     </div>
@@ -200,7 +204,7 @@
 
       var activeCount = entry.active_delivery_count != null ? entry.active_delivery_count : 0;
       var zone = zoneNameFor(entry.__spId);
-      var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount, zone: zone };
+      var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount, zone: zone, spId: entry.__spId };
 
       var row = Object.assign({}, base, { reason: STATUS_LABELS[st] || st });
 
@@ -397,10 +401,30 @@
     });
   }
 
+  function renderDebugZones() {
+    var panel = document.getElementById('tpl-debugZones');
+    var counts = {};
+    lastAllRows.forEach(function (r) { var id = r.spId == null ? 'unknown' : r.spId; counts[id] = (counts[id] || 0) + 1; });
+    var ids = Object.keys(counts).sort(function (a, b) { return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0); });
+    panel.innerHTML = ids.map(function (id) {
+      var mapped = ZONE_MAP[id] ? (' \u2192 ' + esc(ZONE_MAP[id])) : ' \u2192 unmapped';
+      return '<div class="tpl-stat" style="min-width:auto;padding:6px 10px;"><div class="n" style="font-size:14px;">' + counts[id] + '</div><div class="l">SP ' + esc(id) + mapped + '</div></div>';
+    }).join('');
+  }
+
+  var debugZonesVisible = false;
+  document.getElementById('tpl-debugZonesBtn').addEventListener('click', function () {
+    debugZonesVisible = !debugZonesVisible;
+    var panel = document.getElementById('tpl-debugZones');
+    panel.style.display = debugZonesVisible ? 'flex' : 'none';
+    if (debugZonesVisible) renderDebugZones();
+  });
+
   function renderAll() {
     renderStatsRow();
     renderZoneStats();
     renderResults();
+    if (debugZonesVisible) renderDebugZones();
   }
 
   // column-header sort clicks (event delegation so it survives re-renders)
