@@ -239,6 +239,7 @@
   function fetchLive() {
     var statusLine = document.getElementById('tpl-status');
     statusLine.textContent = 'Fetching live data (' + STARTING_POINT_IDS.length + ' starting points)...';
+    var authToken = localStorage.getItem('token');
     var fetchOpts = {
       credentials: 'include',
       headers: {
@@ -246,6 +247,7 @@
         'X-Requested-With': 'XMLHttpRequest'
       }
     };
+    if (authToken) fetchOpts.headers['Authorization'] = 'Bearer ' + authToken;
     Promise.all(STARTING_POINT_IDS.map(function (spId) {
       return fetch(API_BASE + spId, fetchOpts)
         .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status + ' for SP ' + spId); return res.json(); })
