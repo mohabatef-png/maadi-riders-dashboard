@@ -211,13 +211,17 @@
         allRows.push(row);
         return;
       }
-      if (c.status === 'working' && activeCount === 0) {
+      if (activeCount === 0) {
+        // idle tracking now applies to ANY status (working, break, ending,
+        // starting, temp_not_working, unknown) — not just "working" — as
+        // long as the rider has 0 active orders.
         var start = getIdleStart(c.id);
         if (start == null) { start = now; setIdleStart(c.id, start); }
         var elapsed = now - start;
         var flagged = elapsed >= IDLE_THRESHOLD_MS;
+        var statusPrefix = (st === 'working') ? '' : ((STATUS_LABELS[st] || st) + ' \u2022 ');
         row = Object.assign({}, base, {
-          reason: 'Idle ' + fmtMins(elapsed),
+          reason: statusPrefix + 'Idle ' + fmtMins(elapsed),
           idleSince: new Date(start).toLocaleTimeString(),
           elapsedMs: elapsed,
           flagged: flagged
@@ -249,8 +253,10 @@
       '</td><td>' + r.activeOrders + '</td><td><span class="tpl-tag ' + kind + '">' + esc(r.reason) + '</span></td></tr>';
   }
 
-  function kindForStatus(status) {
-    if (status === 'late') return 'late';
+  function kindForRow(r) {
+    if (r.status === 'late') return 'late';
+    if (r.flagged) return 'idle';
+    if (r.elapsedMs != null) return 'idle-mild';
     return 'idle-mild';
   }
 
@@ -308,20 +314,28 @@
     var clearZoneBtn = activeZone ? ' <button id="tpl-clearZone" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Clear zone</button>' : '';
 
     if (activeFilter === null) {
-      // default view: Late & Idle
+      // default view: Late & Idle (any status)
       var rows = zoneFilteredRows((lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []));
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong>' + zoneBit + clearZoneBtn +
         ' <span class="tpl-badge">click a stat above to filter by status, or a zone to filter by zone</span></div>' +
-        renderTableGroups(rows, function (r) { return r.status === 'late' ? 'late' : (r.flagged ? 'idle' : 'idle-mild'); });
+        renderTableGroups(rows, kindForRow);
       exportBtn.disabled = rows.length === 0;
+    } else if (activeFilter === '__idle30__') {
+      // idle 30m+ across ANY status
+      var idleRows = zoneFilteredRows((lastFlagged.idleAllView || []).filter(function (r) { return r.flagged; }));
+      results.innerHTML =
+        '<div class="tpl-filter-bar">Showing: <strong>Idle 30m+ (any status)</strong>' + zoneBit + ' (' + idleRows.length + ') ' +
+        '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
+        renderTableGroups(idleRows, kindForRow);
+      exportBtn.disabled = idleRows.length === 0;
     } else {
       var filtered = zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
       var label = STATUS_LABELS[activeFilter] || activeFilter;
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong>' + zoneBit + ' (' + filtered.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
-        renderTableGroups(filtered, function (r) { return kindForStatus(r.status); });
+        renderTableGroups(filtered, kindForRow);
       exportBtn.disabled = filtered.length === 0;
     }
 
@@ -346,7 +360,7 @@
     statsRow.innerHTML =
       '<div class="tpl-stat"><div class="n">' + rows.length + '</div><div class="l">Total riders</div></div>' +
       statusStatsHtml +
-      '<div class="tpl-stat idle"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (flagged)</div></div>';
+      '<div class="tpl-stat idle tpl-clickable' + (activeFilter === '__idle30__' ? ' tpl-active' : '') + '" data-status="__idle30__"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (any status)</div></div>';
 
     Array.prototype.forEach.call(statsRow.querySelectorAll('.tpl-clickable'), function (el) {
       el.addEventListener('click', function () {
@@ -469,9 +483,15 @@
       var wb = XLSX.utils.book_new();
       // export whatever is currently on screen: the active status filter,
       // or the default Late & Idle view when no filter is active
-      var exportRows = zoneFilteredRows(activeFilter === null
-        ? (lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || [])
-        : lastAllRows.filter(function (r) { return r.status === activeFilter; }));
+      var exportRows;
+      if (activeFilter === null) {
+        exportRows = (lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []);
+      } else if (activeFilter === '__idle30__') {
+        exportRows = (lastFlagged.idleAllView || []).filter(function (r) { return r.flagged; });
+      } else {
+        exportRows = lastAllRows.filter(function (r) { return r.status === activeFilter; });
+      }
+      exportRows = zoneFilteredRows(exportRows);
       var groups = groupBy3PL(sortRows(exportRows));
       Object.keys(groups).sort().forEach(function (pl) {
         var rows = groups[pl].map(function (r) {
