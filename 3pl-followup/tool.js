@@ -238,7 +238,13 @@
   function fetchLive() {
     var statusLine = document.getElementById('tpl-status');
     statusLine.textContent = 'Fetching live data...';
-    fetch(LIVE_API_URL, { credentials: 'include' })
+    fetch(LIVE_API_URL, {
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
       .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(function (data) {
         var couriers = Array.isArray(data.couriers) ? data.couriers : [];
