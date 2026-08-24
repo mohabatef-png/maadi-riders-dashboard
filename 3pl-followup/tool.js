@@ -15,6 +15,12 @@
   var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
   var LS_PREFIX = 'tpl_idle_';
 
+  // ---------- per-rider Daily Flow (break time / break count / orders today) ----------
+  // GET .../api/dispatcher-dashboard/courier-flow?courier_id=<id>&date=YYYY-MM-DD
+  var FLOW_API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/courier-flow?courier_id=';
+  var FLOW_CONCURRENCY = 6; // parallel requests at a time — keep modest, this can be called on 100+ riders
+  var flowCache = {}; // courier id -> { breakMin, breakCount, orders, shifts, workingMin, fetchedAt } | { error: true }
+
   // ---------- EDIT ME: starting_point_id -> Zone name ----------
   // Fill this in with your real IDs (check the Network tab URL, e.g.
   // ?starting_point_id=10228, while switching zones in the sidebar).
@@ -118,6 +124,7 @@
             </label>
             <button id="tpl-exportBtn" class="tpl-btn secondary" disabled>Export Excel (per 3PL)</button>
             <button id="tpl-dailyReportBtn" class="tpl-btn secondary">Export Daily Report</button>
+            <button id="tpl-flowBtn" class="tpl-btn secondary">Fetch Daily Flow (all / filtered)</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -320,8 +327,22 @@
   }
 
   function rowHtml(r, kind) {
+    var na = '\u2014';
+    var cell = function (v) { return v != null ? v : na; };
     return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td><td>' + esc(r.status) +
-      '</td><td>' + r.activeOrders + '</td><td><span class="tpl-tag ' + kind + '">' + esc(r.reason) + '</span></td></tr>';
+      '</td><td>' + r.activeOrders + '</td>' +
+      '<td>' + cell(r.flowShiftCount) + '</td>' +
+      '<td>' + cell(r.flowWorkingMin) + '</td>' +
+      '<td>' + cell(r.flowBreakMin) + '</td>' +
+      '<td>' + cell(r.flowBreakCount) + '</td>' +
+      '<td>' + cell(r.flowAutoBreakMin) + '</td>' +
+      '<td>' + cell(r.flowCourierBreakMin) + '</td>' +
+      '<td>' + cell(r.flowManualBreakMin) + '</td>' +
+      '<td>' + cell(r.flowNotified) + '</td>' +
+      '<td>' + cell(r.flowAccepted) + '</td>' +
+      '<td>' + cell(r.flowCompleted) + '</td>' +
+      '<td>' + cell(r.flowUnDispatched) + '</td>' +
+      '<td><span class="tpl-tag ' + kind + '">' + esc(r.reason) + '</span></td></tr>';
   }
 
   function kindForRow(r) {
@@ -355,7 +376,14 @@
     if (spId == null) return 'Unknown SP';
     return SP_NAMES[String(spId)] || ('SP ' + spId);
   }
-  var SORT_COLS = [['Name', 'name'], ['Phone', 'phone'], ['Zone', 'zone'], ['Status', 'status'], ['Orders', 'activeOrders'], ['Reason', 'reason']];
+  var SORT_COLS = [['Name', 'name'], ['Phone', 'phone'], ['Zone', 'zone'], ['Status', 'status'], ['Live Orders', 'activeOrders'],
+    ['Shifts', 'flowShiftCount'], ['Working (min)', 'flowWorkingMin'],
+    ['Break Total (min)', 'flowBreakMin'], ['Break Count', 'flowBreakCount'],
+    ['Auto Break (min)', 'flowAutoBreakMin'], ['Courier Break (min)', 'flowCourierBreakMin'], ['Manual Break (min)', 'flowManualBreakMin'],
+    ['Notified', 'flowNotified'], ['Accepted', 'flowAccepted'], ['Completed', 'flowCompleted'], ['Undispatched', 'flowUnDispatched'],
+    ['Reason', 'reason']];
+  var FLOW_NUMERIC_KEYS = ['flowShiftCount', 'flowWorkingMin', 'flowBreakMin', 'flowBreakCount', 'flowAutoBreakMin',
+    'flowCourierBreakMin', 'flowManualBreakMin', 'flowNotified', 'flowAccepted', 'flowCompleted', 'flowUnDispatched']; // unfetched (null) sorts as -1, i.e. always last in desc / first in asc
   var activeFilter = null; // status key currently filtered on, or null for the default Late&Idle view
   var activeZone = null;   // zone name currently filtered on, or null for all zones
   var activeSP = null;     // starting_point_id currently filtered on, or null for all SPs
@@ -367,12 +395,27 @@
     return rows;
   }
 
+  // Mirrors the branching in renderResults(), so the Zone / SP boxes count
+  // the same set of rows that the table below is currently showing.
+  function statusFilteredRows(rows) {
+    if (activeFilter === null) {
+      return rows.filter(function (r) { return r.status === 'late' || r.elapsedMs != null; });
+    } else if (activeFilter === '__idle30__') {
+      return rows.filter(function (r) { return r.flagged; });
+    } else if (activeFilter === '__all__') {
+      return rows;
+    } else {
+      return rows.filter(function (r) { return r.status === activeFilter; });
+    }
+  }
+
   function sortRows(rows) {
     if (!sortKey) return rows;
     var copy = rows.slice();
     copy.sort(function (a, b) {
       var av = a[sortKey], bv = b[sortKey];
       if (sortKey === 'activeOrders') { av = Number(av) || 0; bv = Number(bv) || 0; }
+      else if (FLOW_NUMERIC_KEYS.indexOf(sortKey) !== -1) { av = av == null ? -1 : Number(av); bv = bv == null ? -1 : Number(bv); }
       else { av = String(av == null ? '' : av).toLowerCase(); bv = String(bv == null ? '' : bv).toLowerCase(); }
       if (av < bv) return sortDir === 'asc' ? -1 : 1;
       if (av > bv) return sortDir === 'asc' ? 1 : -1;
@@ -414,7 +457,7 @@
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong>' + scopeBit + clearZoneBtn +
         ' <span class="tpl-badge">click a stat above to filter by status, or a zone to filter by zone</span></div>' +
-        renderTableGroups(rows, kindForRow);
+        renderTableGroups(decorateWithFlow(rows), kindForRow);
       exportBtn.disabled = rows.length === 0;
     } else if (activeFilter === '__idle30__') {
       // idle 30m+ across ANY status
@@ -422,7 +465,7 @@
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>Idle 30m+ (any status)</strong>' + scopeBit + ' (' + idleRows.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
-        renderTableGroups(idleRows, kindForRow);
+        renderTableGroups(decorateWithFlow(idleRows), kindForRow);
       exportBtn.disabled = idleRows.length === 0;
     } else if (activeFilter === '__all__') {
       // every rider, any status
@@ -430,7 +473,7 @@
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>All riders</strong>' + scopeBit + ' (' + allRows.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
-        renderTableGroups(allRows, kindForRow);
+        renderTableGroups(decorateWithFlow(allRows), kindForRow);
       exportBtn.disabled = allRows.length === 0;
     } else {
       var filtered = zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
@@ -438,7 +481,7 @@
       results.innerHTML =
         '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong>' + scopeBit + ' (' + filtered.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
-        renderTableGroups(filtered, kindForRow);
+        renderTableGroups(decorateWithFlow(filtered), kindForRow);
       exportBtn.disabled = filtered.length === 0;
     }
 
@@ -477,7 +520,8 @@
   function renderZoneStats() {
     var zoneRow = document.getElementById('tpl-zoneRow');
     var counts = {};
-    lastAllRows.forEach(function (r) { counts[r.zone] = (counts[r.zone] || 0) + 1; });
+    lastAllRows.forEach(function (r) { counts[r.zone] = 0; }); // seed every real zone at 0 so it doesn't disappear when a status filter has 0 matches there
+    statusFilteredRows(lastAllRows).forEach(function (r) { counts[r.zone] = (counts[r.zone] || 0) + 1; });
     var zones = Object.keys(counts).sort(function (a, b) {
       var ai = ZONE_ORDER.indexOf(a), bi = ZONE_ORDER.indexOf(b);
       if (ai === -1) ai = 100;
@@ -505,7 +549,8 @@
     var spRow = document.getElementById('tpl-spRow');
     if (!spRow) return;
     var counts = {};
-    lastAllRows.forEach(function (r) { var id = r.spId == null ? 'unknown' : String(r.spId); counts[id] = (counts[id] || 0) + 1; });
+    lastAllRows.forEach(function (r) { var id = r.spId == null ? 'unknown' : String(r.spId); counts[id] = 0; }); // seed every real SP at 0
+    statusFilteredRows(lastAllRows).forEach(function (r) { var id = r.spId == null ? 'unknown' : String(r.spId); counts[id] = (counts[id] || 0) + 1; });
     var ids = Object.keys(counts).sort(function (a, b) {
       var za = ZONE_MAP[a] || '', zb = ZONE_MAP[b] || '';
       var ai = ZONE_ORDER.indexOf(za), bi = ZONE_ORDER.indexOf(zb);
@@ -625,6 +670,118 @@
     });
   }
 
+  function fetchFlowForId(id) {
+    var url = FLOW_API_BASE + id + '&date=' + todayKey();
+    var authToken = localStorage.getItem('token');
+    var opts = {
+      credentials: 'include',
+      headers: { 'Accept': 'application/json, text/plain, */*', 'X-Requested-With': 'XMLHttpRequest' }
+    };
+    if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
+    return fetch(url, opts)
+      .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      .then(function (data) {
+        var perf = data.performance || {};
+        var ov = data.overview || {};
+        return {
+          shiftCount: perf.shift_count != null ? perf.shift_count : null,
+          breakCount: perf.break_count != null ? perf.break_count : null,
+          unDispatched: perf.un_dispatched_count != null ? perf.un_dispatched_count : null,
+          notified: perf.notified_count != null ? perf.notified_count : null,
+          accepted: perf.accepted_count != null ? perf.accepted_count : null,
+          completed: perf.completed_count != null ? perf.completed_count : null,
+          workingMin: ov.total_working_duration_in_min != null ? ov.total_working_duration_in_min : null,
+          breakMin: ov.total_break_duration_in_min != null ? ov.total_break_duration_in_min : null,
+          autoBreakMin: ov.total_automatic_break_duration_in_min != null ? ov.total_automatic_break_duration_in_min : null,
+          courierBreakMin: ov.total_courier_break_duration_in_min != null ? ov.total_courier_break_duration_in_min : null,
+          manualBreakMin: ov.total_manual_break_duration_in_min != null ? ov.total_manual_break_duration_in_min : null,
+          fetchedAt: Date.now()
+        };
+      })
+      .catch(function (e) { console.warn('3PL tool: daily flow fetch failed for courier', id, e); return { error: true }; });
+  }
+
+  // Runs fetchFlowForId across `ids` with at most FLOW_CONCURRENCY in flight at once.
+  function fetchFlowForIds(ids, onProgress) {
+    var queue = ids.slice();
+    var total = queue.length;
+    var done = 0;
+    function worker() {
+      var id = queue.shift();
+      if (id === undefined) return Promise.resolve();
+      return fetchFlowForId(id).then(function (res) {
+        flowCache[id] = res;
+        done++;
+        if (onProgress) onProgress(done, total);
+        return worker();
+      });
+    }
+    var workers = [];
+    for (var i = 0; i < Math.min(FLOW_CONCURRENCY, total || 1); i++) workers.push(worker());
+    return Promise.all(workers);
+  }
+
+  // Same branching as renderResults() — the set of rows currently on screen
+  // (after zone/SP + status filters), before decoration with flow data.
+  function currentVisibleRows() {
+    if (activeFilter === null) {
+      return zoneFilteredRows((lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []));
+    } else if (activeFilter === '__idle30__') {
+      return zoneFilteredRows((lastFlagged.idleAllView || []).filter(function (r) { return r.flagged; }));
+    } else if (activeFilter === '__all__') {
+      return zoneFilteredRows(lastAllRows);
+    } else {
+      return zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
+    }
+  }
+
+  // Attaches today's flow data (if fetched) onto row copies so it can be
+  // displayed, sorted, and exported like any other column.
+  function decorateWithFlow(rows) {
+    return rows.map(function (r) {
+      var f = flowCache[r.id];
+      var ok = f && !f.error;
+      return Object.assign({}, r, {
+        flowShiftCount: ok ? f.shiftCount : null,
+        flowBreakCount: ok ? f.breakCount : null,
+        flowUnDispatched: ok ? f.unDispatched : null,
+        flowNotified: ok ? f.notified : null,
+        flowAccepted: ok ? f.accepted : null,
+        flowCompleted: ok ? f.completed : null,
+        flowWorkingMin: ok ? f.workingMin : null,
+        flowBreakMin: ok ? f.breakMin : null,
+        flowAutoBreakMin: ok ? f.autoBreakMin : null,
+        flowCourierBreakMin: ok ? f.courierBreakMin : null,
+        flowManualBreakMin: ok ? f.manualBreakMin : null
+      });
+    });
+  }
+
+  document.getElementById('tpl-flowBtn').addEventListener('click', function () {
+    var statusLine = document.getElementById('tpl-status');
+    // If a zone, SP, or status filter is active, only fetch for the riders
+    // that filter is currently showing. Otherwise (no filter at all) fetch
+    // Daily Flow for every loaded rider.
+    var filterActive = activeZone !== null || activeSP !== null || activeFilter !== null;
+    var scopeRows = filterActive ? currentVisibleRows() : lastAllRows;
+    var scopeLabel = filterActive ? 'current filter' : 'all riders';
+    var ids = [];
+    scopeRows.forEach(function (r) { if (ids.indexOf(r.id) === -1) ids.push(r.id); });
+    if (ids.length === 0) { statusLine.textContent = 'No riders in the current view to fetch.'; return; }
+    if (ids.length > 150 && !window.confirm('This will fetch Daily Flow for ' + ids.length + ' riders (' + scopeLabel + ', ' + FLOW_CONCURRENCY + ' at a time) — that can take a few minutes. Continue?')) {
+      statusLine.textContent = 'Daily flow fetch cancelled.';
+      return;
+    }
+    statusLine.textContent = 'Fetching daily flow (' + scopeLabel + ') for ' + ids.length + ' riders (0/' + ids.length + ')...';
+    fetchFlowForIds(ids, function (done, total) {
+      statusLine.textContent = 'Fetching daily flow (' + done + '/' + total + ')...';
+    }).then(function () {
+      statusLine.textContent = 'Daily flow fetched for ' + ids.length + ' riders (' + scopeLabel + ') at ' + new Date().toLocaleTimeString();
+      renderResults();
+    });
+
+  });
+
   var autoRefreshTimer = null;
   document.getElementById('tpl-autoRefresh').addEventListener('change', function (e) {
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
@@ -656,11 +813,20 @@
       } else {
         exportRows = lastAllRows.filter(function (r) { return r.status === activeFilter; });
       }
-      exportRows = zoneFilteredRows(exportRows);
+      exportRows = decorateWithFlow(zoneFilteredRows(exportRows));
       var groups = groupBy3PL(sortRows(exportRows));
       Object.keys(groups).sort().forEach(function (pl) {
         var rows = groups[pl].map(function (r) {
-          return { Name: r.name, Phone: r.phone, Zone: r.zone, Status: r.status, 'Active Orders': r.activeOrders, Reason: r.reason };
+          return {
+            Name: r.name, Phone: r.phone, Zone: r.zone, Status: r.status, 'Active Orders': r.activeOrders,
+            Shifts: r.flowShiftCount != null ? r.flowShiftCount : '', 'Working (min)': r.flowWorkingMin != null ? r.flowWorkingMin : '',
+            'Break Total (min)': r.flowBreakMin != null ? r.flowBreakMin : '', 'Break Count': r.flowBreakCount != null ? r.flowBreakCount : '',
+            'Auto Break (min)': r.flowAutoBreakMin != null ? r.flowAutoBreakMin : '', 'Courier Break (min)': r.flowCourierBreakMin != null ? r.flowCourierBreakMin : '',
+            'Manual Break (min)': r.flowManualBreakMin != null ? r.flowManualBreakMin : '',
+            Notified: r.flowNotified != null ? r.flowNotified : '', Accepted: r.flowAccepted != null ? r.flowAccepted : '',
+            Completed: r.flowCompleted != null ? r.flowCompleted : '', Undispatched: r.flowUnDispatched != null ? r.flowUnDispatched : '',
+            Reason: r.reason
+          };
         });
         var ws = XLSX.utils.json_to_sheet(rows);
         var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
