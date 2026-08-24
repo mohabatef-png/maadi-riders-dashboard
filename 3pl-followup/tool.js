@@ -117,6 +117,7 @@
               </select>
             </label>
             <button id="tpl-exportBtn" class="tpl-btn secondary" disabled>Export Excel (per 3PL)</button>
+            <button id="tpl-dailyReportBtn" class="tpl-btn secondary">Export Daily Report</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -157,32 +158,39 @@
   function setIdleStart(id, ts) { localStorage.setItem(LS_PREFIX + id, String(ts)); }
   function clearIdleStart(id) { localStorage.removeItem(LS_PREFIX + id); }
 
-  function extractCouriers(raw) {
-    try {
-      var obj = JSON.parse(raw);
-      if (Array.isArray(obj.couriers)) return obj.couriers;
-      if (Array.isArray(obj)) return obj;
-    } catch (e) { /* fall through */ }
-    var couriers = [], depth = 0, start = -1;
-    for (var i = 0; i < raw.length; i++) {
-      var ch = raw[i];
-      if (ch === '{') { if (depth === 0) start = i; depth++; }
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0 && start !== -1) {
-          var chunk = raw.slice(start, i + 1);
-          try { var o = JSON.parse(chunk); if (Array.isArray(o.couriers)) couriers.push.apply(couriers, o.couriers); } catch (e) {}
-          start = -1;
-        }
-      }
-    }
-    return couriers;
+  // ---------- daily report storage (persists in localStorage per calendar day) ----------
+  // ---------- EDIT ME: "low orders for the shift" thresholds ----------
+  var LOW_ORDER_SHIFT_HOURS_THRESHOLD_MS = 3 * 60 * 60 * 1000; // only flag riders whose shift is at least this long (default 3h)
+  var LOW_ORDER_MAX_ORDERS = 5; // flag if their approx. order count for the shift is below this (default 5)
+  function todayKey() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
+  function loadDailyRegistry() {
+    try { var raw = localStorage.getItem('tpl_daily_' + todayKey()); return raw ? JSON.parse(raw) : {}; }
+    catch (e) { return {}; }
+  }
+  function saveDailyRegistry(reg) {
+    try { localStorage.setItem('tpl_daily_' + todayKey(), JSON.stringify(reg)); } catch (e) { /* storage full or blocked — skip */ }
+  }
+  // drop old-day registries so localStorage doesn't grow forever (keep last 14 days)
+  (function cleanupOldDailyRegistries() {
+    var cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    var currentKey = 'tpl_daily_' + todayKey();
+    Object.keys(localStorage).forEach(function (k) {
+      if (k.indexOf('tpl_daily_') !== 0 || k === currentKey) return;
+      var m = k.match(/^tpl_daily_(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return;
+      var t = new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+      if (t < cutoff) localStorage.removeItem(k);
+    });
+  })();
 
   function fmtMins(ms) {
     var m = Math.floor(ms / 60000), h = Math.floor(m / 60), r = m % 60;
     return h > 0 ? (h + 'h ' + r + 'm') : (m + 'm');
   }
+  var fmtHrs = fmtMins; // same h/m formatting works for longer shift durations too
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
@@ -193,9 +201,13 @@
   var lastFlagged = { late: [], idle: [] };
 
   var lastAllRows = []; // every rider, normalized, for status-click filtering
+  var currentRegistryDate = todayKey();
+  var dailyRegistry = loadDailyRegistry(); // riderId -> accumulated stats for today
 
   function process(couriers) {
     var now = Date.now();
+    var td = todayKey();
+    if (td !== currentRegistryDate) { currentRegistryDate = td; dailyRegistry = loadDailyRegistry(); } // new calendar day — fresh registry
     var late = [], idleAll = [], allRows = [];
     var statusCounts = {};
 
@@ -209,12 +221,40 @@
       var zone = zoneNameFor(entry.__spId);
       var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount, zone: zone, spId: entry.__spId };
 
+      // ---- daily registry bookkeeping (survives refreshes/reloads via localStorage) ----
+      var rec = dailyRegistry[c.id] || { totalIdleMs: 0, timesIdle: 0, longestIdleMs: 0, everHadOrder: false, approxOrderCount: 0, prevActiveOrders: 0 };
+      rec.name = base.name; rec.phone = base.phone; rec.zone = base.zone; rec.contract = base.contract;
+      rec.lastStatus = base.status; rec.lastActiveOrders = activeCount; rec.lastSeen = now;
+      if (activeCount > 0) rec.everHadOrder = true; // tracks whether they EVER had an order today, across all snapshots
+      // approximate total orders for the shift: the API only exposes CURRENT active
+      // order count, not a running daily total, so we infer new pickups from
+      // increases between consecutive snapshots (a rise from 1->2 = +1 order, a
+      // drop just means an order was completed/dropped, not a new one).
+      var prevActive = rec.prevActiveOrders || 0;
+      if (activeCount > prevActive) rec.approxOrderCount = (rec.approxOrderCount || 0) + (activeCount - prevActive);
+      rec.prevActiveOrders = activeCount;
+      if (entry.active_shift_started_at) rec.shiftStartedAt = entry.active_shift_started_at;
+      rec.shiftHoursSoFar = rec.shiftStartedAt ? Math.max(0, now - Date.parse(rec.shiftStartedAt)) : null;
+      dailyRegistry[c.id] = rec;
+
+
+      function finalizeIdleStreak() {
+        var start = getIdleStart(c.id);
+        if (start != null) {
+          var elapsed = now - start;
+          rec.totalIdleMs += elapsed;
+          rec.timesIdle += 1;
+          if (elapsed > rec.longestIdleMs) rec.longestIdleMs = elapsed;
+        }
+        clearIdleStart(c.id);
+      }
+
       var row = Object.assign({}, base, { reason: STATUS_LABELS[st] || st });
 
       if (c.status === 'late') {
         row = Object.assign({}, base, { reason: 'Late' });
         late.push(row);
-        clearIdleStart(c.id);
+        finalizeIdleStreak();
         allRows.push(row);
         return;
       }
@@ -237,9 +277,11 @@
         allRows.push(row);
         return;
       }
-      clearIdleStart(c.id);
+      finalizeIdleStreak();
       allRows.push(row);
     });
+
+    saveDailyRegistry(dailyRegistry);
 
     // sort idle list longest-idle first so the worst cases are on top
     idleAll.sort(function (a, b) { return b.elapsedMs - a.elapsedMs; });
@@ -247,6 +289,28 @@
     lastFlagged = { late: late, idle: idleFlagged, lateAll: late, idleAllView: idleAll };
     lastAllRows = allRows;
     renderAll(); // preserves activeFilter/activeZone/sort across refreshes
+  }
+
+  function extractCouriers(raw) {
+    try {
+      var obj = JSON.parse(raw);
+      if (Array.isArray(obj.couriers)) return obj.couriers;
+      if (Array.isArray(obj)) return obj;
+    } catch (e) { /* fall through */ }
+    var couriers = [], depth = 0, start = -1;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw[i];
+      if (ch === '{') { if (depth === 0) start = i; depth++; }
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          var chunk = raw.slice(start, i + 1);
+          try { var o = JSON.parse(chunk); if (Array.isArray(o.couriers)) couriers.push.apply(couriers, o.couriers); } catch (e) {}
+          start = -1;
+        }
+      }
+    }
+    return couriers;
   }
 
   function groupBy3PL(list) {
@@ -605,6 +669,65 @@
       var scopeSuffix = activeSP !== null ? ('_' + spNameFor(activeSP).replace(/\s+/g, '_')) : (activeZone ? ('_' + activeZone) : '');
       var suffix = (activeFilter === null ? 'late_idle' : activeFilter) + scopeSuffix;
       XLSX.writeFile(wb, '3PL_followup_' + suffix + '_' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.xlsx');
+    }).catch(function () {
+      document.getElementById('tpl-status').textContent = 'Could not load Excel export library.';
+    });
+  });
+
+  document.getElementById('tpl-dailyReportBtn').addEventListener('click', function () {
+    xlsxReady.then(function () {
+      var now = Date.now();
+      var records = Object.keys(dailyRegistry).map(function (id) {
+        var r = dailyRegistry[id];
+        var stillIdleMs = getIdleStart(id) != null ? (now - getIdleStart(id)) : 0;
+        return {
+          id: id, name: r.name, phone: r.phone, zone: r.zone, contract: r.contract,
+          lastStatus: r.lastStatus, lastActiveOrders: r.lastActiveOrders,
+          totalIdleMs: (r.totalIdleMs || 0) + stillIdleMs,
+          timesIdle: r.timesIdle || 0,
+          longestIdleMs: Math.max(r.longestIdleMs || 0, stillIdleMs),
+          shiftHoursSoFar: r.shiftHoursSoFar,
+          everHadOrder: !!r.everHadOrder,
+          approxOrderCount: r.approxOrderCount || 0
+        };
+      });
+
+      // Sheet 1: every rider who was idle at all today, longest total idle time first
+      var idleRecords = records.filter(function (r) { return r.totalIdleMs > 0; })
+        .sort(function (a, b) { return b.totalIdleMs - a.totalIdleMs; });
+      var idleSheetRows = idleRecords.map(function (r) {
+        return {
+          Name: r.name, Phone: r.phone, Zone: r.zone, '3PL': r.contract,
+          'Total Idle Today': fmtMins(r.totalIdleMs),
+          'Times Idle': r.timesIdle,
+          'Longest Idle Streak': fmtMins(r.longestIdleMs),
+          'Current Status': r.lastStatus
+        };
+      });
+
+      // Sheet 2: riders whose shift is long (default 8h+) but who got few or no
+      // orders during that whole shift (default under 5) — worst (fewest orders,
+      // longest shift) first
+      var lowOrderRecords = records.filter(function (r) {
+        return r.shiftHoursSoFar != null && r.shiftHoursSoFar >= LOW_ORDER_SHIFT_HOURS_THRESHOLD_MS && r.approxOrderCount < LOW_ORDER_MAX_ORDERS;
+      }).sort(function (a, b) {
+        if (a.approxOrderCount !== b.approxOrderCount) return a.approxOrderCount - b.approxOrderCount;
+        return b.shiftHoursSoFar - a.shiftHoursSoFar;
+      });
+      var lowOrderSheetRows = lowOrderRecords.map(function (r) {
+        return {
+          Name: r.name, Phone: r.phone, Zone: r.zone, '3PL': r.contract,
+          'Shift Time So Far': fmtHrs(r.shiftHoursSoFar),
+          'Orders Today (approx.)': r.approxOrderCount,
+          'Current Status': r.lastStatus
+        };
+      });
+
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(idleSheetRows.length ? idleSheetRows : [{ Note: 'No idle riders recorded today yet' }]), 'Idle Time Today');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lowOrderSheetRows.length ? lowOrderSheetRows : [{ Note: 'No riders with a long shift and low order count today' }]), 'Long Shift, Low Orders');
+      XLSX.writeFile(wb, '3PL_daily_report_' + todayKey() + '.xlsx');
+      document.getElementById('tpl-status').textContent = 'Daily report exported (' + idleSheetRows.length + ' idle riders, ' + lowOrderSheetRows.length + ' long-shift/low-orders).';
     }).catch(function () {
       document.getElementById('tpl-status').textContent = 'Could not load Excel export library.';
     });
