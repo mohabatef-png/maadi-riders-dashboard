@@ -14,6 +14,9 @@
   var STARTING_POINT_IDS = ['10228','10174','10215','10232','10231','10217','10227','10241','10001','10064','10002','10003','10130','10009','10161','10020','10135'];
   var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
   var LS_PREFIX = 'tpl_idle_';
+  var LATE_LS_PREFIX = 'tpl_lateactive_'; // marks a rider as "currently in a late episode" so repeated polls don't over-count
+  function isLateActive(id) { return localStorage.getItem(LATE_LS_PREFIX + id) === '1'; }
+  function setLateActive(id, v) { if (v) localStorage.setItem(LATE_LS_PREFIX + id, '1'); else localStorage.removeItem(LATE_LS_PREFIX + id); }
 
   // ---------- per-rider Daily Flow (break time / break count / orders today) ----------
   // GET .../api/dispatcher-dashboard/courier/flow?courier_id=<id>&date=YYYY-MM-DD
@@ -127,6 +130,9 @@
             <button id="tpl-flowBtn" class="tpl-btn secondary">Fetch Daily Flow (all / filtered)</button>
             <button id="tpl-flowExportBtn" class="tpl-btn secondary">Export Daily Flow (per 3PL)</button>
             <button id="tpl-lowPerfFlowBtn" class="tpl-btn secondary">Export Low Performers Flow (3h+, \u22645 orders)</button>
+            <button id="tpl-weeklyLateFetchBtn" class="tpl-btn secondary">Fetch Historical Late (7 days)</button>
+            <button id="tpl-weeklyLateBtn" class="tpl-btn secondary">Weekly Late Summary (7 days)</button>
+            <button id="tpl-weeklyLateExportBtn" class="tpl-btn secondary">Export Late 2+ Days (past week)</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -140,6 +146,7 @@
           <button id="tpl-debugZonesBtn" class="tpl-btn secondary" style="padding:4px 10px;font-size:11px;">Show raw starting-point IDs (for zone mapping)</button>
           <div id="tpl-debugZones" style="display:none;flex-wrap:wrap;gap:8px;margin-top:10px;"></div>
         </div>
+        <div id="tpl-weeklyLateResults"></div>
         <div id="tpl-results"></div>
       </div>
     </div>
@@ -195,6 +202,69 @@
     });
   })();
 
+  // ---------- weekly late summary (built from the last 7 days of daily registries already saved in this browser) ----------
+  function loadRegistryForDate(dateKey) {
+    if (dateKey === todayKey()) return dailyRegistry; // today's in-memory copy is the freshest source
+    try { var raw = localStorage.getItem('tpl_daily_' + dateKey); return raw ? JSON.parse(raw) : {}; }
+    catch (e) { return {}; }
+  }
+  function last7DateKeys() {
+    var keys = [];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    }
+    return keys; // today first, oldest last
+  }
+  // For each rider: how many of the last 7 days had at least one late count
+  // (daysLate), the total late count across those days (totalLateEpisodes),
+  // and a per-day breakdown. Prefers REAL data fetched from the Flow API
+  // (weeklyFlowCache, via "Fetch Historical Late") when available for that
+  // rider+day; otherwise falls back to the live-tracked estimate this tool
+  // recorded itself while running (dailyRegistry.timesLate). Riders with 0
+  // late days this week are excluded entirely.
+  function computeWeeklyLateSummary() {
+    var dateKeys = last7DateKeys();
+    var summary = {};
+    var identity = {};
+    lastAllRows.forEach(function (r) { identity[r.id] = { name: r.name, phone: r.phone, zone: r.zone, contract: r.contract }; });
+
+    dateKeys.forEach(function (dk) {
+      var reg = loadRegistryForDate(dk);
+      var idsToday = {};
+      Object.keys(reg).forEach(function (id) { idsToday[id] = true; });
+      Object.keys(weeklyFlowCache).forEach(function (id) { if (weeklyFlowCache[id][dk]) idsToday[id] = true; });
+
+      Object.keys(idsToday).forEach(function (id) {
+        var regRec = reg[id];
+        var fetched = weeklyFlowCache[id] && weeklyFlowCache[id][dk];
+        var lateCount = null, source = null;
+        if (fetched && !fetched.error && fetched.lateCount != null) { lateCount = fetched.lateCount; source = 'flow'; }
+        else if (regRec && regRec.timesLate) { lateCount = regRec.timesLate; source = 'tracked'; }
+        if (!lateCount || lateCount <= 0) return;
+
+        if (!summary[id]) {
+          var idn = identity[id] || {};
+          summary[id] = {
+            id: id,
+            name: (regRec && regRec.name) || idn.name || '',
+            phone: (regRec && regRec.phone) || idn.phone || '',
+            zone: (regRec && regRec.zone) || idn.zone || '',
+            contract: (regRec && regRec.contract) || idn.contract || 'Unknown 3PL',
+            daysLateCount: 0, totalLateEpisodes: 0, perDay: {}, perDaySource: {}, perDayTimes: {}
+          };
+        }
+        var s = summary[id];
+        s.daysLateCount += 1;
+        s.totalLateEpisodes += lateCount;
+        s.perDay[dk] = lateCount;
+        s.perDaySource[dk] = source;
+        s.perDayTimes[dk] = (fetched && fetched.lateTimes) ? fetched.lateTimes : [];
+      });
+    });
+    return summary;
+  }
+
   function fmtMins(ms) {
     var m = Math.floor(ms / 60000), h = Math.floor(m / 60), r = m % 60;
     return h > 0 ? (h + 'h ' + r + 'm') : (m + 'm');
@@ -235,13 +305,14 @@
       if (c.id == null) return;
       var st = c.status || 'unknown';
       statusCounts[st] = (statusCounts[st] || 0) + 1;
+      if (st !== 'late' && isLateActive(c.id)) setLateActive(c.id, false); // episode ended
 
       var activeCount = entry.active_delivery_count != null ? entry.active_delivery_count : 0;
       var zone = zoneNameFor(entry.__spId);
       var base = { id: c.id, name: c.name || '', phone: c.phone_number || '', contract: c.contract_name || 'Unknown 3PL', status: c.status || '', activeOrders: activeCount, zone: zone, spId: entry.__spId };
 
       // ---- daily registry bookkeeping (survives refreshes/reloads via localStorage) ----
-      var rec = dailyRegistry[c.id] || { totalIdleMs: 0, timesIdle: 0, longestIdleMs: 0, everHadOrder: false, approxOrderCount: 0, prevActiveOrders: 0 };
+      var rec = dailyRegistry[c.id] || { totalIdleMs: 0, timesIdle: 0, longestIdleMs: 0, everHadOrder: false, approxOrderCount: 0, prevActiveOrders: 0, timesLate: 0 };
       rec.name = base.name; rec.phone = base.phone; rec.zone = base.zone; rec.contract = base.contract;
       rec.lastStatus = base.status; rec.lastActiveOrders = activeCount; rec.lastSeen = now;
       if (activeCount > 0) rec.everHadOrder = true; // tracks whether they EVER had an order today, across all snapshots
@@ -271,6 +342,7 @@
       var row = Object.assign({}, base, { reason: STATUS_LABELS[st] || st });
 
       if (c.status === 'late') {
+        if (!isLateActive(c.id)) { rec.timesLate = (rec.timesLate || 0) + 1; setLateActive(c.id, true); } // new episode -> count it once
         row = Object.assign({}, base, { reason: 'Late' });
         late.push(row);
         finalizeIdleStreak();
@@ -690,8 +762,9 @@
     });
   }
 
-  function fetchFlowForId(id) {
-    var url = FLOW_API_BASE + id + '&date=' + todayKey();
+  var weeklyFlowCache = {}; // courier id -> { 'YYYY-MM-DD': flowResult } - real per-day data fetched from the Flow API (past days)
+  function fetchFlowForIdDate(id, dateKey) {
+    var url = FLOW_API_BASE + id + '&date=' + dateKey;
     var authToken = localStorage.getItem('token');
     var opts = {
       credentials: 'include',
@@ -703,6 +776,17 @@
       .then(function (data) {
         var perf = data.performance || {};
         var ov = data.overview || {};
+        // CONFIRMED source for "late" (2026-08-25): the Flow API has no
+        // late_count field in performance/overview - instead transitions_events
+        // is a chronological log of courier status changes, and each time the
+        // courier enters the "late" status it appears as one entry with
+        // transition_type: "courier", event_title: "late". Count those.
+        var events = Array.isArray(data.transitions_events) ? data.transitions_events : [];
+        var lateTimes = [];
+        events.forEach(function (ev) {
+          if (ev && ev.transition_type === 'courier' && ev.event_title === 'late') lateTimes.push(ev.time);
+        });
+        var lateCount = lateTimes.length;
         return {
           shiftCount: perf.shift_count != null ? perf.shift_count : null,
           breakCount: perf.break_count != null ? perf.break_count : null,
@@ -715,11 +799,14 @@
           autoBreakMin: ov.total_automatic_break_duration_in_min != null ? ov.total_automatic_break_duration_in_min : null,
           courierBreakMin: ov.total_courier_break_duration_in_min != null ? ov.total_courier_break_duration_in_min : null,
           manualBreakMin: ov.total_manual_break_duration_in_min != null ? ov.total_manual_break_duration_in_min : null,
+          lateCount: lateCount,
+          lateTimes: lateTimes,
           fetchedAt: Date.now()
         };
       })
-      .catch(function (e) { console.warn('3PL tool: daily flow fetch failed for courier', id, e); return { error: true }; });
+      .catch(function (e) { console.warn('3PL tool: flow fetch failed for courier', id, 'date', dateKey, e); return { error: true }; });
   }
+  function fetchFlowForId(id) { return fetchFlowForIdDate(id, todayKey()); }
 
   // Runs fetchFlowForId across `ids` with at most FLOW_CONCURRENCY in flight at once.
   function fetchFlowForIds(ids, onProgress) {
@@ -731,6 +818,32 @@
       if (id === undefined) return Promise.resolve();
       return fetchFlowForId(id).then(function (res) {
         flowCache[id] = res;
+        done++;
+        if (onProgress) onProgress(done, total);
+        return worker();
+      });
+    }
+    var workers = [];
+    for (var i = 0; i < Math.min(FLOW_CONCURRENCY, total || 1); i++) workers.push(worker());
+    return Promise.all(workers);
+  }
+
+  // Fetches courier/flow for each rider x each of the last 7 days (real
+  // historical data from the API, not the localStorage estimate).
+  // Results land in weeklyFlowCache[id][dateKey].
+  function fetchHistoricalLateForIds(ids, onProgress) {
+    var dateKeys = last7DateKeys();
+    var tasks = [];
+    ids.forEach(function (id) { dateKeys.forEach(function (dk) { tasks.push({ id: id, date: dk }); }); });
+    var queue = tasks.slice();
+    var total = queue.length;
+    var done = 0;
+    function worker() {
+      var t = queue.shift();
+      if (!t) return Promise.resolve();
+      return fetchFlowForIdDate(t.id, t.date).then(function (res) {
+        weeklyFlowCache[t.id] = weeklyFlowCache[t.id] || {};
+        weeklyFlowCache[t.id][t.date] = res;
         done++;
         if (onProgress) onProgress(done, total);
         return worker();
@@ -967,6 +1080,106 @@
       }).catch(function () {
         statusLine.textContent = 'Could not load Excel export library.';
       });
+    });
+  });
+
+  // ---------- weekly late summary UI + export (built purely from local daily registries, no fetch needed) ----------
+  function weeklyLateRows(minDays) {
+    var summary = computeWeeklyLateSummary();
+    var rows = Object.keys(summary).map(function (id) { return summary[id]; });
+    if (minDays) rows = rows.filter(function (r) { return r.daysLateCount >= minDays; });
+    rows.sort(function (a, b) {
+      if (b.daysLateCount !== a.daysLateCount) return b.daysLateCount - a.daysLateCount;
+      return b.totalLateEpisodes - a.totalLateEpisodes;
+    });
+    return rows;
+  }
+
+  function renderWeeklyLateResults(minDays) {
+    var container = document.getElementById('tpl-weeklyLateResults');
+    var rows = weeklyLateRows(minDays);
+    var titleBit = minDays > 1 ? ('Late on ' + minDays + '+ days this week') : 'Late this week (any day)';
+    if (rows.length === 0) {
+      container.innerHTML = '<div class="tpl-panelbox"><div class="tpl-filter-bar">' + esc(titleBit) +
+        ' <button id="tpl-weeklyLateClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>' +
+        '<div class="tpl-empty">No riders match. \ud83c\udf89</div></div>';
+    } else {
+      var groups = groupBy3PL(rows);
+      var html = '<div class="tpl-filter-bar"><strong>' + esc(titleBit) + '</strong> \u2014 last 7 calendar days (today included) ' +
+        '<span class="tpl-badge">' + rows.length + ' riders</span> ' +
+        '<button id="tpl-weeklyLateClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>';
+      html += Object.keys(groups).sort().map(function (pl) {
+        var plRows = groups[pl];
+        var body = plRows.map(function (r) {
+          var sources = Object.keys(r.perDaySource || {}).map(function (k) { return r.perDaySource[k]; });
+          var hasFlow = sources.indexOf('flow') !== -1, hasTracked = sources.indexOf('tracked') !== -1;
+          var srcLabel = hasFlow && hasTracked ? 'Mixed' : hasFlow ? 'Flow API' : 'Live-tracked (est.)';
+          return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td>' +
+            '<td>' + r.daysLateCount + '</td><td>' + r.totalLateEpisodes + '</td><td>' + esc(srcLabel) + '</td></tr>';
+        }).join('');
+        return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + plRows.length + ' riders</span></h2>' +
+          '<table><thead><tr><th>Name</th><th>Phone</th><th>Zone</th><th>Days Late This Week</th><th>Total Late Episodes</th><th>Source</th></tr></thead>' +
+          '<tbody>' + body + '</tbody></table></div>';
+      }).join('');
+      container.innerHTML = html;
+    }
+    var closeBtn = document.getElementById('tpl-weeklyLateClose');
+    if (closeBtn) closeBtn.addEventListener('click', function () { container.innerHTML = ''; });
+  }
+
+  // Pulls REAL late data from the Flow API for every rider currently
+  // loaded, across each of the last 7 days (not the localStorage estimate).
+  document.getElementById('tpl-weeklyLateFetchBtn').addEventListener('click', function () {
+    var statusLine = document.getElementById('tpl-status');
+    var ids = [];
+    lastAllRows.forEach(function (r) { if (ids.indexOf(r.id) === -1) ids.push(r.id); });
+    if (ids.length === 0) { statusLine.textContent = 'No riders loaded yet \u2014 fetch or paste live data first.'; return; }
+    var totalCalls = ids.length * 7;
+    if (totalCalls > 200 && !window.confirm('This will make ' + totalCalls + ' requests (' + ids.length + ' riders \u00d7 7 days, ' + FLOW_CONCURRENCY + ' at a time) \u2014 that can take a while. Continue?')) {
+      statusLine.textContent = 'Historical late fetch cancelled.';
+      return;
+    }
+    statusLine.textContent = 'Fetching historical late data (0/' + totalCalls + ')...';
+    fetchHistoricalLateForIds(ids, function (done, total) {
+      statusLine.textContent = 'Fetching historical late data (' + done + '/' + total + ')...';
+    }).then(function () {
+      statusLine.textContent = 'Historical late data fetched for ' + ids.length + ' riders (past 7 days) at ' + new Date().toLocaleTimeString() + '. Check console for any days where the "late" field couldn\u2019t be found.';
+      renderWeeklyLateResults(1);
+    });
+  });
+
+  document.getElementById('tpl-weeklyLateBtn').addEventListener('click', function () {
+    renderWeeklyLateResults(1); // any rider late at least once this week
+  });
+
+  // Separate filter+export: riders LATE on MORE THAN 1 DAY in the past week (repeat offenders)
+  document.getElementById('tpl-weeklyLateExportBtn').addEventListener('click', function () {
+    var statusLine = document.getElementById('tpl-status');
+    var rows = weeklyLateRows(2); // more than 1 day = 2 or more distinct days
+    renderWeeklyLateResults(2);
+    if (rows.length === 0) { statusLine.textContent = 'No riders were late on more than 1 day in the past week. If you haven\u2019t already, try "Fetch Historical Late" first.'; return; }
+    xlsxReady.then(function () {
+      var wb = XLSX.utils.book_new();
+      var dateKeysOldFirst = last7DateKeys().slice().reverse();
+      var groups = groupBy3PL(rows);
+      Object.keys(groups).sort().forEach(function (pl) {
+        var plRows = groups[pl].map(function (r) {
+          var row = { Name: r.name, Phone: r.phone, Zone: r.zone, 'Days Late This Week': r.daysLateCount, 'Total Late Episodes This Week': r.totalLateEpisodes };
+          dateKeysOldFirst.forEach(function (dk) {
+            row[dk + ' (count)'] = r.perDay[dk] || 0;
+            var times = r.perDayTimes[dk] || [];
+            row[dk + ' (times)'] = times.map(function (t) { return new Date(t).toLocaleTimeString(); }).join(', ');
+          });
+          return row;
+        });
+        var ws = XLSX.utils.json_to_sheet(plRows);
+        var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+        XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
+      });
+      XLSX.writeFile(wb, '3PL_late_2plus_days_week_' + todayKey() + '.xlsx');
+      statusLine.textContent = 'Exported ' + rows.length + ' riders late on 2+ days this past week across ' + Object.keys(groups).length + ' 3PLs.';
+    }).catch(function () {
+      statusLine.textContent = 'Could not load Excel export library.';
     });
   });
 
