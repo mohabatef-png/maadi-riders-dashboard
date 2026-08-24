@@ -16,8 +16,8 @@
   var LS_PREFIX = 'tpl_idle_';
 
   // ---------- per-rider Daily Flow (break time / break count / orders today) ----------
-  // GET .../api/dispatcher-dashboard/courier-flow?courier_id=<id>&date=YYYY-MM-DD
-  var FLOW_API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/courier-flow?courier_id=';
+  // GET .../api/dispatcher-dashboard/courier/flow?courier_id=<id>&date=YYYY-MM-DD
+  var FLOW_API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/courier/flow?courier_id=';
   var FLOW_CONCURRENCY = 6; // parallel requests at a time — keep modest, this can be called on 100+ riders
   var flowCache = {}; // courier id -> { breakMin, breakCount, orders, shifts, workingMin, fetchedAt } | { error: true }
 
