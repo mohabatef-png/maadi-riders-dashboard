@@ -118,6 +118,7 @@
             </label>
             <button id="tpl-exportBtn" class="tpl-btn secondary" disabled>Export Excel (per 3PL)</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
+            <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
           </div>
         </div>
@@ -359,6 +360,14 @@
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
         renderTableGroups(idleRows, kindForRow);
       exportBtn.disabled = idleRows.length === 0;
+    } else if (activeFilter === '__all__') {
+      // every rider, any status
+      var allRows = zoneFilteredRows(lastAllRows);
+      results.innerHTML =
+        '<div class="tpl-filter-bar">Showing: <strong>All riders</strong>' + scopeBit + ' (' + allRows.length + ') ' +
+        '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
+        renderTableGroups(allRows, kindForRow);
+      exportBtn.disabled = allRows.length === 0;
     } else {
       var filtered = zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
       var label = STATUS_LABELS[activeFilter] || activeFilter;
@@ -388,7 +397,7 @@
     }).join('');
 
     statsRow.innerHTML =
-      '<div class="tpl-stat"><div class="n">' + rows.length + '</div><div class="l">Total riders</div></div>' +
+      '<div class="tpl-stat tpl-clickable' + (activeFilter === '__all__' ? ' tpl-active' : '') + '" data-status="__all__"><div class="n">' + rows.length + '</div><div class="l">Total riders</div></div>' +
       statusStatsHtml +
       '<div class="tpl-stat idle tpl-clickable' + (activeFilter === '__idle30__' ? ' tpl-active' : '') + '" data-status="__idle30__"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (any status)</div></div>';
 
@@ -513,6 +522,15 @@
     document.getElementById('tpl-status').textContent = 'Idle timers reset.';
   });
 
+  document.getElementById('tpl-resetFiltersBtn').addEventListener('click', function () {
+    activeFilter = null;
+    activeZone = null;
+    activeSP = null;
+    sortKey = null;
+    sortDir = 'asc';
+    renderAll();
+  });
+
   function fetchLive() {
     var statusLine = document.getElementById('tpl-status');
     statusLine.textContent = 'Fetching live data (' + STARTING_POINT_IDS.length + ' starting points)...';
@@ -569,6 +587,8 @@
         exportRows = (lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []);
       } else if (activeFilter === '__idle30__') {
         exportRows = (lastFlagged.idleAllView || []).filter(function (r) { return r.flagged; });
+      } else if (activeFilter === '__all__') {
+        exportRows = lastAllRows;
       } else {
         exportRows = lastAllRows.filter(function (r) { return r.status === activeFilter; });
       }
