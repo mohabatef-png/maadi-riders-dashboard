@@ -130,9 +130,13 @@
             <button id="tpl-flowBtn" class="tpl-btn secondary">Fetch Daily Flow (all / filtered)</button>
             <button id="tpl-flowExportBtn" class="tpl-btn secondary">Export Daily Flow (per 3PL)</button>
             <button id="tpl-lowPerfFlowBtn" class="tpl-btn secondary">Export Low Performers Flow (3h+, \u22645 orders)</button>
-            <button id="tpl-weeklyLateFetchBtn" class="tpl-btn secondary">Fetch Historical Late (7 days)</button>
-            <button id="tpl-weeklyLateBtn" class="tpl-btn secondary">Weekly Late Summary (7 days)</button>
-            <button id="tpl-weeklyLateExportBtn" class="tpl-btn secondary">Export Late 2+ Days (past week)</button>
+            <button id="tpl-weeklyLateFetchBtn" class="tpl-btn secondary">Fetch Historical Flow (7 days)</button>
+            <button id="tpl-weeklyLateBtn" class="tpl-btn secondary">Weekly Late Summary</button>
+            <button id="tpl-weeklyLateExportBtn" class="tpl-btn secondary">Export Late 2+ Days</button>
+            <button id="tpl-weeklyZeroBtn" class="tpl-btn secondary">Weekly Zero-Order Summary</button>
+            <button id="tpl-weeklyZeroExportBtn" class="tpl-btn secondary">Export Zero-Order Days</button>
+            <button id="tpl-weeklyIdleBtn" class="tpl-btn secondary">Weekly Idle 4h+ Summary</button>
+            <button id="tpl-weeklyIdleExportBtn" class="tpl-btn secondary">Export Idle 4h+ Days</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -263,6 +267,71 @@
       });
     });
     return summary;
+  }
+
+  // Generic version of the weekly builder above, for metrics that only exist
+  // in the fetched Flow data (orders, idle time) - there's no local live-
+  // tracked fallback for these like there is for "late", so a day only
+  // counts once it's been fetched via "Fetch Historical Flow".
+  //   qualifies(fetched, regRec) -> bool: does this rider/day count?
+  //   valueFn(fetched, regRec)   -> number: value to sum into totalValue and store per-day
+  //   extraFn(fetched, regRec)   -> optional extra per-day value (e.g. break minutes for context)
+  function computeWeeklyMetricSummary(qualifies, valueFn, extraFn) {
+    var dateKeys = last7DateKeys();
+    var summary = {};
+    var identity = {};
+    lastAllRows.forEach(function (r) { identity[r.id] = { name: r.name, phone: r.phone, zone: r.zone, contract: r.contract }; });
+
+    dateKeys.forEach(function (dk) {
+      var reg = loadRegistryForDate(dk);
+      Object.keys(weeklyFlowCache).forEach(function (id) {
+        var fetched = weeklyFlowCache[id][dk];
+        if (!fetched || fetched.error) return; // need real data for this day
+        var regRec = reg[id];
+        if (!qualifies(fetched, regRec)) return;
+
+        if (!summary[id]) {
+          var idn = identity[id] || {};
+          summary[id] = {
+            id: id,
+            name: (regRec && regRec.name) || idn.name || '',
+            phone: (regRec && regRec.phone) || idn.phone || '',
+            zone: (regRec && regRec.zone) || idn.zone || '',
+            contract: (regRec && regRec.contract) || idn.contract || 'Unknown 3PL',
+            daysCount: 0, totalValue: 0, perDay: {}, perDayExtra: {}
+          };
+        }
+        var s = summary[id];
+        var v = valueFn(fetched, regRec) || 0;
+        s.daysCount += 1;
+        s.totalValue += v;
+        s.perDay[dk] = v;
+        if (extraFn) s.perDayExtra[dk] = extraFn(fetched, regRec);
+      });
+    });
+    return summary;
+  }
+
+  // Zero-order days: rider had a shift that day (shift_count > 0) but
+  // completed 0 orders (performance.completed_count === 0).
+  function computeWeeklyZeroOrderSummary() {
+    return computeWeeklyMetricSummary(
+      function (f) { return (f.shiftCount || 0) > 0 && (f.completed || 0) === 0; },
+      function () { return 1; },
+      function (f) { return f.notified || 0; } // how many they were notified of but still completed 0
+    );
+  }
+
+  // Idle 4h+ days: net idle time (shift time minus working minus normal
+  // break) exceeds 4 hours. breakMin is carried as context so you can see
+  // how much of the down time was legitimate break vs unexplained idle.
+  var IDLE_DAY_THRESHOLD_MIN = 4 * 60;
+  function computeWeeklyIdleSummary() {
+    return computeWeeklyMetricSummary(
+      function (f) { return (f.netIdleMin || 0) > IDLE_DAY_THRESHOLD_MIN; },
+      function (f) { return f.netIdleMin || 0; },
+      function (f) { return f.breakMin || 0; }
+    );
   }
 
   function fmtMins(ms) {
@@ -787,6 +856,14 @@
           if (ev && ev.transition_type === 'courier' && ev.event_title === 'late') lateTimes.push(ev.time);
         });
         var lateCount = lateTimes.length;
+        // total shift duration that day, summed across shifts (same unit -
+        // minutes - as the other overview durations), used to derive "net
+        // idle" = time that's neither working nor on a normal break.
+        var shiftsList = Array.isArray(ov.shifts) ? ov.shifts : [];
+        var shiftsTotalMin = shiftsList.reduce(function (sum, sh) { return sum + (sh && sh.total_shift_duration != null ? sh.total_shift_duration : 0); }, 0);
+        var workingMinVal = ov.total_working_duration_in_min != null ? ov.total_working_duration_in_min : 0;
+        var breakMinVal = ov.total_break_duration_in_min != null ? ov.total_break_duration_in_min : 0;
+        var netIdleMin = Math.max(0, shiftsTotalMin - workingMinVal - breakMinVal);
         return {
           shiftCount: perf.shift_count != null ? perf.shift_count : null,
           breakCount: perf.break_count != null ? perf.break_count : null,
@@ -799,6 +876,8 @@
           autoBreakMin: ov.total_automatic_break_duration_in_min != null ? ov.total_automatic_break_duration_in_min : null,
           courierBreakMin: ov.total_courier_break_duration_in_min != null ? ov.total_courier_break_duration_in_min : null,
           manualBreakMin: ov.total_manual_break_duration_in_min != null ? ov.total_manual_break_duration_in_min : null,
+          shiftsTotalMin: shiftsTotalMin,
+          netIdleMin: netIdleMin,
           lateCount: lateCount,
           lateTimes: lateTimes,
           fetchedAt: Date.now()
@@ -1139,11 +1218,11 @@
       statusLine.textContent = 'Historical late fetch cancelled.';
       return;
     }
-    statusLine.textContent = 'Fetching historical late data (0/' + totalCalls + ')...';
+    statusLine.textContent = 'Fetching historical flow data (0/' + totalCalls + ')...';
     fetchHistoricalLateForIds(ids, function (done, total) {
-      statusLine.textContent = 'Fetching historical late data (' + done + '/' + total + ')...';
+      statusLine.textContent = 'Fetching historical flow data (' + done + '/' + total + ')...';
     }).then(function () {
-      statusLine.textContent = 'Historical late data fetched for ' + ids.length + ' riders (past 7 days) at ' + new Date().toLocaleTimeString() + '. Check console for any days where the "late" field couldn\u2019t be found.';
+      statusLine.textContent = 'Historical flow data fetched for ' + ids.length + ' riders (past 7 days) at ' + new Date().toLocaleTimeString() + '. Now check Weekly Late / Zero-Order / Idle summaries.';
       renderWeeklyLateResults(1);
     });
   });
@@ -1181,6 +1260,104 @@
     }).catch(function () {
       statusLine.textContent = 'Could not load Excel export library.';
     });
+  });
+
+  // ---------- weekly zero-order & idle 4h+ UI + export (needs "Fetch Historical Flow" run first - no local fallback) ----------
+  function weeklyMetricRows(summaryFn, minDays) {
+    var summary = summaryFn();
+    var rows = Object.keys(summary).map(function (id) { return summary[id]; });
+    if (minDays) rows = rows.filter(function (r) { return r.daysCount >= minDays; });
+    rows.sort(function (a, b) {
+      if (b.daysCount !== a.daysCount) return b.daysCount - a.daysCount;
+      return b.totalValue - a.totalValue;
+    });
+    return rows;
+  }
+
+  // valueLabel/extraLabel/valueFmt/extraFmt let the same renderer serve both
+  // the zero-order table (plain counts) and the idle table (Xh Ym durations).
+  function renderWeeklyMetricResults(rows, opts) {
+    var container = document.getElementById('tpl-weeklyLateResults');
+    if (rows.length === 0) {
+      container.innerHTML = '<div class="tpl-panelbox"><div class="tpl-filter-bar">' + esc(opts.title) +
+        ' <button id="tpl-weeklyLateClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>' +
+        '<div class="tpl-empty">No riders match \u2014 have you run "Fetch Historical Flow" yet? \ud83c\udf89</div></div>';
+    } else {
+      var groups = groupBy3PL(rows);
+      var html = '<div class="tpl-filter-bar"><strong>' + esc(opts.title) + '</strong> \u2014 last 7 calendar days (today included), from Fetch Historical Flow ' +
+        '<span class="tpl-badge">' + rows.length + ' riders</span> ' +
+        '<button id="tpl-weeklyLateClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>';
+      html += Object.keys(groups).sort().map(function (pl) {
+        var plRows = groups[pl];
+        var body = plRows.map(function (r) {
+          return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td>' +
+            '<td>' + r.daysCount + '</td><td>' + esc(opts.valueFmt(r.totalValue)) + '</td></tr>';
+        }).join('');
+        return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) + ' <span class="tpl-badge">' + plRows.length + ' riders</span></h2>' +
+          '<table><thead><tr><th>Name</th><th>Phone</th><th>Zone</th><th>' + esc(opts.daysLabel) + '</th><th>' + esc(opts.valueLabel) + '</th></tr></thead>' +
+          '<tbody>' + body + '</tbody></table></div>';
+      }).join('');
+      container.innerHTML = html;
+    }
+    var closeBtn = document.getElementById('tpl-weeklyLateClose');
+    if (closeBtn) closeBtn.addEventListener('click', function () { container.innerHTML = ''; });
+  }
+
+  function exportWeeklyMetric(rows, opts) {
+    var statusLine = document.getElementById('tpl-status');
+    if (rows.length === 0) { statusLine.textContent = 'No riders match. Run "Fetch Historical Flow" first if you haven\u2019t already.'; return; }
+    xlsxReady.then(function () {
+      var wb = XLSX.utils.book_new();
+      var dateKeysOldFirst = last7DateKeys().slice().reverse();
+      var groups = groupBy3PL(rows);
+      Object.keys(groups).sort().forEach(function (pl) {
+        var plRows = groups[pl].map(function (r) {
+          var row = { Name: r.name, Phone: r.phone, Zone: r.zone };
+          row[opts.daysLabel] = r.daysCount;
+          row[opts.valueLabel] = opts.valueFmt(r.totalValue);
+          dateKeysOldFirst.forEach(function (dk) {
+            row[dk] = r.perDay[dk] != null ? opts.valueFmt(r.perDay[dk]) : '';
+            if (opts.extraLabel) row[dk + ' - ' + opts.extraLabel] = r.perDayExtra[dk] != null ? opts.extraFmt(r.perDayExtra[dk]) : '';
+          });
+          return row;
+        });
+        var ws = XLSX.utils.json_to_sheet(plRows);
+        var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+        XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
+      });
+      XLSX.writeFile(wb, opts.fileName + '_' + todayKey() + '.xlsx');
+      statusLine.textContent = 'Exported ' + rows.length + ' riders across ' + Object.keys(groups).length + ' 3PLs.';
+    }).catch(function () {
+      statusLine.textContent = 'Could not load Excel export library.';
+    });
+  }
+
+  var zeroOrderOpts = {
+    title: 'Zero-order days this week', daysLabel: 'Zero-Order Days This Week', valueLabel: 'Total Zero-Order Days',
+    valueFmt: function (v) { return String(v); }, extraLabel: 'Notified (0 completed)', extraFmt: function (v) { return String(v); },
+    fileName: '3PL_zero_order_days_week'
+  };
+  document.getElementById('tpl-weeklyZeroBtn').addEventListener('click', function () {
+    renderWeeklyMetricResults(weeklyMetricRows(computeWeeklyZeroOrderSummary, 1), zeroOrderOpts);
+  });
+  document.getElementById('tpl-weeklyZeroExportBtn').addEventListener('click', function () {
+    var rows = weeklyMetricRows(computeWeeklyZeroOrderSummary, 1);
+    renderWeeklyMetricResults(rows, zeroOrderOpts);
+    exportWeeklyMetric(rows, zeroOrderOpts);
+  });
+
+  var idleOpts = {
+    title: 'Idle 4h+ days this week (net of normal break)', daysLabel: 'Idle 4h+ Days This Week', valueLabel: 'Total Idle Time (4h+ days)',
+    valueFmt: fmtFlowMin, extraLabel: 'Normal Break', extraFmt: fmtFlowMin,
+    fileName: '3PL_idle_4hplus_days_week'
+  };
+  document.getElementById('tpl-weeklyIdleBtn').addEventListener('click', function () {
+    renderWeeklyMetricResults(weeklyMetricRows(computeWeeklyIdleSummary, 1), idleOpts);
+  });
+  document.getElementById('tpl-weeklyIdleExportBtn').addEventListener('click', function () {
+    var rows = weeklyMetricRows(computeWeeklyIdleSummary, 1);
+    renderWeeklyMetricResults(rows, idleOpts);
+    exportWeeklyMetric(rows, idleOpts);
   });
 
   document.getElementById('tpl-dailyReportBtn').addEventListener('click', function () {
