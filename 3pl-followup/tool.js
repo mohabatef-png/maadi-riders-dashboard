@@ -126,6 +126,7 @@
             <button id="tpl-dailyReportBtn" class="tpl-btn secondary">Export Daily Report</button>
             <button id="tpl-flowBtn" class="tpl-btn secondary">Fetch Daily Flow (all / filtered)</button>
             <button id="tpl-flowExportBtn" class="tpl-btn secondary">Export Daily Flow (per 3PL)</button>
+            <button id="tpl-lowPerfFlowBtn" class="tpl-btn secondary">Export Low Performers Flow (3h+, \u22645 orders)</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -200,12 +201,11 @@
   }
   var fmtHrs = fmtMins; // same h/m formatting works for longer shift durations too
 
-  // Formats a Daily Flow minute value (already in minutes, not ms) as "Xh Ym"
-  // once it passes 60, rounding to a whole minute to clean up floating-point
-  // noise (401.58000000000004 -> "6h 42m"). Returns null through untouched so
-  // callers can decide their own placeholder for missing data.
-  function fmtFlowMinutes(v) {
-    if (v == null) return null;
+  // Same "Xh Ym" format as the on-screen table (see cellMin in rowHtml), but
+  // for minute-value fields (flow working/break minutes) instead of ms -
+  // used everywhere we export those fields to Excel so exports match the UI.
+  function fmtFlowMin(v) {
+    if (v == null) return '';
     var totalMin = Math.round(v);
     if (totalMin >= 60) { var h = Math.floor(totalMin / 60), m = totalMin % 60; return h + 'h ' + m + 'm'; }
     return totalMin + 'm';
@@ -839,10 +839,10 @@
         var rows = groups[pl].map(function (r) {
           return {
             Name: r.name, Phone: r.phone, Zone: r.zone, Status: r.status, 'Active Orders': r.activeOrders,
-            Shifts: r.flowShiftCount != null ? r.flowShiftCount : '', 'Working (min)': r.flowWorkingMin != null ? r.flowWorkingMin : '',
-            'Break Total (min)': r.flowBreakMin != null ? r.flowBreakMin : '', 'Break Count': r.flowBreakCount != null ? r.flowBreakCount : '',
-            'Auto Break (min)': r.flowAutoBreakMin != null ? r.flowAutoBreakMin : '', 'Courier Break (min)': r.flowCourierBreakMin != null ? r.flowCourierBreakMin : '',
-            'Manual Break (min)': r.flowManualBreakMin != null ? r.flowManualBreakMin : '',
+            Shifts: r.flowShiftCount != null ? r.flowShiftCount : '', Working: fmtFlowMin(r.flowWorkingMin),
+            'Break Total': fmtFlowMin(r.flowBreakMin), 'Break Count': r.flowBreakCount != null ? r.flowBreakCount : '',
+            'Auto Break': fmtFlowMin(r.flowAutoBreakMin), 'Courier Break': fmtFlowMin(r.flowCourierBreakMin),
+            'Manual Break': fmtFlowMin(r.flowManualBreakMin),
             Notified: r.flowNotified != null ? r.flowNotified : '', Accepted: r.flowAccepted != null ? r.flowAccepted : '',
             Completed: r.flowCompleted != null ? r.flowCompleted : '', Undispatched: r.flowUnDispatched != null ? r.flowUnDispatched : '',
             Reason: r.reason
@@ -880,10 +880,10 @@
         var plRows = groups[pl].map(function (r) {
           return {
             Name: r.name, Phone: r.phone, Zone: r.zone, Status: r.status,
-            Shifts: r.flowShiftCount != null ? r.flowShiftCount : '', 'Working (min)': r.flowWorkingMin != null ? r.flowWorkingMin : '',
-            'Break Total (min)': r.flowBreakMin != null ? r.flowBreakMin : '', 'Break Count': r.flowBreakCount != null ? r.flowBreakCount : '',
-            'Auto Break (min)': r.flowAutoBreakMin != null ? r.flowAutoBreakMin : '', 'Courier Break (min)': r.flowCourierBreakMin != null ? r.flowCourierBreakMin : '',
-            'Manual Break (min)': r.flowManualBreakMin != null ? r.flowManualBreakMin : '',
+            Shifts: r.flowShiftCount != null ? r.flowShiftCount : '', Working: fmtFlowMin(r.flowWorkingMin),
+            'Break Total': fmtFlowMin(r.flowBreakMin), 'Break Count': r.flowBreakCount != null ? r.flowBreakCount : '',
+            'Auto Break': fmtFlowMin(r.flowAutoBreakMin), 'Courier Break': fmtFlowMin(r.flowCourierBreakMin),
+            'Manual Break': fmtFlowMin(r.flowManualBreakMin),
             Notified: r.flowNotified != null ? r.flowNotified : '', Accepted: r.flowAccepted != null ? r.flowAccepted : '',
             Completed: r.flowCompleted != null ? r.flowCompleted : '', Undispatched: r.flowUnDispatched != null ? r.flowUnDispatched : ''
           };
@@ -898,6 +898,78 @@
       statusLine.textContent = 'Could not load Excel export library.';
     });
   });
+  // Low performers: shift >= 3h (LOW_ORDER_SHIFT_HOURS_THRESHOLD_MS) AND
+  // 0-5 orders all day (LOW_ORDER_MAX_ORDERS) - same thresholds as the
+  // "Long Shift, Low Orders" sheet in the Daily Report, but this button
+  // auto-fetches full Daily Flow for exactly those riders (no need to
+  // click "Fetch Daily Flow" first) and exports every flow field, one
+  // sheet per 3PL, worst performers (fewest orders, then longest shift) first.
+  document.getElementById('tpl-lowPerfFlowBtn').addEventListener('click', function () {
+    var statusLine = document.getElementById('tpl-status');
+    var records = Object.keys(dailyRegistry).map(function (id) {
+      var r = dailyRegistry[id];
+      return {
+        id: id, name: r.name, phone: r.phone, zone: r.zone, contract: r.contract || 'Unknown 3PL',
+        lastStatus: r.lastStatus, shiftHoursSoFar: r.shiftHoursSoFar, approxOrderCount: r.approxOrderCount || 0
+      };
+    }).filter(function (r) {
+      return r.shiftHoursSoFar != null && r.shiftHoursSoFar >= LOW_ORDER_SHIFT_HOURS_THRESHOLD_MS &&
+        r.approxOrderCount >= 0 && r.approxOrderCount <= LOW_ORDER_MAX_ORDERS;
+    });
+
+    if (records.length === 0) {
+      statusLine.textContent = 'No riders today match 3h+ shift with 0-' + LOW_ORDER_MAX_ORDERS + ' orders.';
+      return;
+    }
+
+    var ids = records.map(function (r) { return r.id; });
+    statusLine.textContent = 'Fetching daily flow for ' + ids.length + ' low-performing riders (0/' + ids.length + ')...';
+    fetchFlowForIds(ids, function (done, total) {
+      statusLine.textContent = 'Fetching daily flow for low performers (' + done + '/' + total + ')...';
+    }).then(function () {
+      xlsxReady.then(function () {
+        var wb = XLSX.utils.book_new();
+        // worst performance first: fewest orders, then longest shift
+        records.sort(function (a, b) {
+          if (a.approxOrderCount !== b.approxOrderCount) return a.approxOrderCount - b.approxOrderCount;
+          return b.shiftHoursSoFar - a.shiftHoursSoFar;
+        });
+        var groups = {};
+        records.forEach(function (r) { (groups[r.contract] = groups[r.contract] || []).push(r); });
+        Object.keys(groups).sort().forEach(function (pl) {
+          var plRows = groups[pl].map(function (r) {
+            var f = flowCache[r.id];
+            var ok = f && !f.error;
+            return {
+              Name: r.name, Phone: r.phone, Zone: r.zone, 'Current Status': r.lastStatus,
+              'Shift Time So Far': fmtHrs(r.shiftHoursSoFar),
+              'Orders Today (approx.)': r.approxOrderCount,
+              Shifts: ok && f.shiftCount != null ? f.shiftCount : '',
+              Working: fmtFlowMin(ok ? f.workingMin : null),
+              'Break Total': fmtFlowMin(ok ? f.breakMin : null),
+              'Break Count': ok && f.breakCount != null ? f.breakCount : '',
+              'Auto Break': fmtFlowMin(ok ? f.autoBreakMin : null),
+              'Courier Break': fmtFlowMin(ok ? f.courierBreakMin : null),
+              'Manual Break': fmtFlowMin(ok ? f.manualBreakMin : null),
+              Notified: ok && f.notified != null ? f.notified : '',
+              Accepted: ok && f.accepted != null ? f.accepted : '',
+              Completed: ok && f.completed != null ? f.completed : '',
+              Undispatched: ok && f.unDispatched != null ? f.unDispatched : '',
+              'Flow Fetch Status': ok ? 'OK' : 'Failed'
+            };
+          });
+          var ws = XLSX.utils.json_to_sheet(plRows);
+          var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+          XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
+        });
+        XLSX.writeFile(wb, '3PL_low_performers_flow_' + todayKey() + '_' + new Date().toISOString().slice(11, 16).replace(':', '-') + '.xlsx');
+        statusLine.textContent = 'Exported ' + records.length + ' low performers (3h+, \u2264' + LOW_ORDER_MAX_ORDERS + ' orders) across ' + Object.keys(groups).length + ' 3PLs.';
+      }).catch(function () {
+        statusLine.textContent = 'Could not load Excel export library.';
+      });
+    });
+  });
+
   document.getElementById('tpl-dailyReportBtn').addEventListener('click', function () {
     xlsxReady.then(function () {
       var now = Date.now();
