@@ -329,15 +329,23 @@
   function rowHtml(r, kind) {
     var na = '\u2014';
     var cell = function (v) { return v != null ? v : na; };
+    // minute-based flow fields render as "Xh Ym" once they pass 60, and get
+    // rounded to whole minutes to avoid floating-point noise (401.58000000000004 -> 6h 42m)
+    var cellMin = function (v) {
+      if (v == null) return na;
+      var totalMin = Math.round(v);
+      if (totalMin >= 60) { var h = Math.floor(totalMin / 60), m = totalMin % 60; return h + 'h ' + m + 'm'; }
+      return totalMin + 'm';
+    };
     return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td><td>' + esc(r.status) +
       '</td><td>' + r.activeOrders + '</td>' +
       '<td>' + cell(r.flowShiftCount) + '</td>' +
-      '<td>' + cell(r.flowWorkingMin) + '</td>' +
-      '<td>' + cell(r.flowBreakMin) + '</td>' +
+      '<td>' + cellMin(r.flowWorkingMin) + '</td>' +
+      '<td>' + cellMin(r.flowBreakMin) + '</td>' +
       '<td>' + cell(r.flowBreakCount) + '</td>' +
-      '<td>' + cell(r.flowAutoBreakMin) + '</td>' +
-      '<td>' + cell(r.flowCourierBreakMin) + '</td>' +
-      '<td>' + cell(r.flowManualBreakMin) + '</td>' +
+      '<td>' + cellMin(r.flowAutoBreakMin) + '</td>' +
+      '<td>' + cellMin(r.flowCourierBreakMin) + '</td>' +
+      '<td>' + cellMin(r.flowManualBreakMin) + '</td>' +
       '<td>' + cell(r.flowNotified) + '</td>' +
       '<td>' + cell(r.flowAccepted) + '</td>' +
       '<td>' + cell(r.flowCompleted) + '</td>' +
@@ -377,9 +385,9 @@
     return SP_NAMES[String(spId)] || ('SP ' + spId);
   }
   var SORT_COLS = [['Name', 'name'], ['Phone', 'phone'], ['Zone', 'zone'], ['Status', 'status'], ['Live Orders', 'activeOrders'],
-    ['Shifts', 'flowShiftCount'], ['Working (min)', 'flowWorkingMin'],
-    ['Break Total (min)', 'flowBreakMin'], ['Break Count', 'flowBreakCount'],
-    ['Auto Break (min)', 'flowAutoBreakMin'], ['Courier Break (min)', 'flowCourierBreakMin'], ['Manual Break (min)', 'flowManualBreakMin'],
+    ['Shifts', 'flowShiftCount'], ['Working', 'flowWorkingMin'],
+    ['Break Total', 'flowBreakMin'], ['Break Count', 'flowBreakCount'],
+    ['Auto Break', 'flowAutoBreakMin'], ['Courier Break', 'flowCourierBreakMin'], ['Manual Break', 'flowManualBreakMin'],
     ['Notified', 'flowNotified'], ['Accepted', 'flowAccepted'], ['Completed', 'flowCompleted'], ['Undispatched', 'flowUnDispatched'],
     ['Reason', 'reason']];
   var FLOW_NUMERIC_KEYS = ['flowShiftCount', 'flowWorkingMin', 'flowBreakMin', 'flowBreakCount', 'flowAutoBreakMin',
