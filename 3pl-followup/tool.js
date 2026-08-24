@@ -123,6 +123,8 @@
         </div>
         <div id="tpl-statsRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;"></div>
         <div id="tpl-zoneRow" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <div style="font-size:11px;color:#7d8590;margin-bottom:6px;">Hybrid fleet / starting points:</div>
+        <div id="tpl-spRow" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
         <div style="margin-bottom:16px;">
           <button id="tpl-debugZonesBtn" class="tpl-btn secondary" style="padding:4px 10px;font-size:11px;">Show raw starting-point IDs (for zone mapping)</button>
           <div id="tpl-debugZones" style="display:none;flex-wrap:wrap;gap:8px;margin-top:10px;"></div>
@@ -266,14 +268,38 @@
 
   var STATUS_LABELS = { working: 'Working', break: 'Break', late: 'Late', ending: 'Ending', starting: 'Starting', temp_not_working: 'Temp not working', unknown: 'Unknown' };
   var ZONE_ORDER = ['Maadi', 'Mokattam', 'Helwan'];
+  var SP_NAMES = {
+    '10174': 'Hybrid fleet maadi',
+    '10228': 'Hybrid fleet maadi laselky',
+    '10215': 'Hybrid fleet maadi meraag',
+    '10232': 'Hybrid fleet maadi old',
+    '10130': 'Maadi nesting sp',
+    '10002': 'New maadi',
+    '10003': 'Old maadi',
+    '10009': 'Zahraa maadi and meraag',
+    '10161': 'Zahraa maadi nesting',
+    '10231': 'Hybrid fleet mokattam easy sports',
+    '10217': 'Hybrid fleet mokattam mafarik',
+    '10227': 'Hybrid fleet mokattam nafora',
+    '10001': 'Mokattam sp',
+    '10064': 'Mokkatam asmarat sp',
+    '10020': 'Helwan SP'
+    // 10241 / 10135 have no confirmed name yet — they'll show as "SP 10241" / "SP 10135".
+  };
+  function spNameFor(spId) {
+    if (spId == null) return 'Unknown SP';
+    return SP_NAMES[String(spId)] || ('SP ' + spId);
+  }
   var SORT_COLS = [['Name', 'name'], ['Phone', 'phone'], ['Zone', 'zone'], ['Status', 'status'], ['Orders', 'activeOrders'], ['Reason', 'reason']];
   var activeFilter = null; // status key currently filtered on, or null for the default Late&Idle view
   var activeZone = null;   // zone name currently filtered on, or null for all zones
+  var activeSP = null;     // starting_point_id currently filtered on, or null for all SPs
   var sortKey = null, sortDir = 'asc';
 
   function zoneFilteredRows(rows) {
-    if (activeZone === null) return rows;
-    return rows.filter(function (r) { return r.zone === activeZone; });
+    if (activeSP !== null) rows = rows.filter(function (r) { return String(r.spId) === String(activeSP); });
+    else if (activeZone !== null) rows = rows.filter(function (r) { return r.zone === activeZone; });
+    return rows;
   }
 
   function sortRows(rows) {
@@ -314,14 +340,14 @@
   function renderResults() {
     var results = document.getElementById('tpl-results');
     var exportBtn = document.getElementById('tpl-exportBtn');
-    var zoneBit = activeZone ? (' in <strong>' + esc(activeZone) + '</strong>') : '';
-    var clearZoneBtn = activeZone ? ' <button id="tpl-clearZone" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Clear zone</button>' : '';
+    var scopeBit = activeSP !== null ? (' in <strong>' + esc(spNameFor(activeSP)) + '</strong>') : (activeZone ? (' in <strong>' + esc(activeZone) + '</strong>') : '');
+    var clearZoneBtn = (activeZone || activeSP !== null) ? ' <button id="tpl-clearZone" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Clear zone/SP</button>' : '';
 
     if (activeFilter === null) {
       // default view: Late & Idle (any status)
       var rows = zoneFilteredRows((lastFlagged.lateAll || []).concat(lastFlagged.idleAllView || []));
       results.innerHTML =
-        '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong>' + zoneBit + clearZoneBtn +
+        '<div class="tpl-filter-bar">Showing: <strong>Late &amp; Idle</strong>' + scopeBit + clearZoneBtn +
         ' <span class="tpl-badge">click a stat above to filter by status, or a zone to filter by zone</span></div>' +
         renderTableGroups(rows, kindForRow);
       exportBtn.disabled = rows.length === 0;
@@ -329,7 +355,7 @@
       // idle 30m+ across ANY status
       var idleRows = zoneFilteredRows((lastFlagged.idleAllView || []).filter(function (r) { return r.flagged; }));
       results.innerHTML =
-        '<div class="tpl-filter-bar">Showing: <strong>Idle 30m+ (any status)</strong>' + zoneBit + ' (' + idleRows.length + ') ' +
+        '<div class="tpl-filter-bar">Showing: <strong>Idle 30m+ (any status)</strong>' + scopeBit + ' (' + idleRows.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
         renderTableGroups(idleRows, kindForRow);
       exportBtn.disabled = idleRows.length === 0;
@@ -337,7 +363,7 @@
       var filtered = zoneFilteredRows(lastAllRows.filter(function (r) { return r.status === activeFilter; }));
       var label = STATUS_LABELS[activeFilter] || activeFilter;
       results.innerHTML =
-        '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong>' + zoneBit + ' (' + filtered.length + ') ' +
+        '<div class="tpl-filter-bar">Showing: <strong>' + esc(label) + '</strong>' + scopeBit + ' (' + filtered.length + ') ' +
         '<button id="tpl-clearFilter" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Back to Late &amp; Idle</button>' + clearZoneBtn + '</div>' +
         renderTableGroups(filtered, kindForRow);
       exportBtn.disabled = filtered.length === 0;
@@ -346,7 +372,7 @@
     var clearBtn = document.getElementById('tpl-clearFilter');
     if (clearBtn) clearBtn.addEventListener('click', function () { activeFilter = null; renderResults(); });
     var clearZone = document.getElementById('tpl-clearZone');
-    if (clearZone) clearZone.addEventListener('click', function () { activeZone = null; renderAll(); });
+    if (clearZone) clearZone.addEventListener('click', function () { activeZone = null; activeSP = null; renderAll(); });
   }
 
   function renderStatsRow() {
@@ -388,14 +414,44 @@
     });
 
     zoneRow.innerHTML = zones.map(function (z) {
-      var active = activeZone === z ? ' tpl-active' : '';
+      var active = (activeSP === null && activeZone === z) ? ' tpl-active' : '';
       return '<div class="tpl-stat tpl-clickable' + active + '" data-zone="' + esc(z) + '"><div class="n">' + counts[z] + '</div><div class="l">' + esc(z) + '</div></div>';
     }).join('');
 
     Array.prototype.forEach.call(zoneRow.querySelectorAll('.tpl-clickable'), function (el) {
       el.addEventListener('click', function () {
         var z = el.getAttribute('data-zone');
-        activeZone = (activeZone === z) ? null : z; // click again to clear
+        activeZone = (activeSP === null && activeZone === z) ? null : z; // click again to clear
+        activeSP = null; // zone and SP filters are mutually exclusive
+        renderAll();
+      });
+    });
+  }
+
+  function renderSPStats() {
+    var spRow = document.getElementById('tpl-spRow');
+    if (!spRow) return;
+    var counts = {};
+    lastAllRows.forEach(function (r) { var id = r.spId == null ? 'unknown' : String(r.spId); counts[id] = (counts[id] || 0) + 1; });
+    var ids = Object.keys(counts).sort(function (a, b) {
+      var za = ZONE_MAP[a] || '', zb = ZONE_MAP[b] || '';
+      var ai = ZONE_ORDER.indexOf(za), bi = ZONE_ORDER.indexOf(zb);
+      if (ai === -1) ai = 100;
+      if (bi === -1) bi = 100;
+      if (ai !== bi) return ai - bi;
+      return spNameFor(a).localeCompare(spNameFor(b));
+    });
+
+    spRow.innerHTML = ids.map(function (id) {
+      var active = activeSP === id ? ' tpl-active' : '';
+      return '<div class="tpl-stat tpl-clickable' + active + '" style="min-width:110px;" data-sp="' + esc(id) + '"><div class="n">' + counts[id] + '</div><div class="l">' + esc(spNameFor(id)) + '</div></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(spRow.querySelectorAll('.tpl-clickable'), function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-sp');
+        activeSP = (activeSP === id) ? null : id; // click again to clear
+        activeZone = null; // zone and SP filters are mutually exclusive
         renderAll();
       });
     });
@@ -423,6 +479,7 @@
   function renderAll() {
     renderStatsRow();
     renderZoneStats();
+    renderSPStats();
     renderResults();
     if (debugZonesVisible) renderDebugZones();
   }
@@ -525,7 +582,8 @@
         var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
         XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
       });
-      var suffix = (activeFilter === null ? 'late_idle' : activeFilter) + (activeZone ? ('_' + activeZone) : '');
+      var scopeSuffix = activeSP !== null ? ('_' + spNameFor(activeSP).replace(/\s+/g, '_')) : (activeZone ? ('_' + activeZone) : '');
+      var suffix = (activeFilter === null ? 'late_idle' : activeFilter) + scopeSuffix;
       XLSX.writeFile(wb, '3PL_followup_' + suffix + '_' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.xlsx');
     }).catch(function () {
       document.getElementById('tpl-status').textContent = 'Could not load Excel export library.';
