@@ -12,6 +12,9 @@
 
   var API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/couriers?starting_point_id=';
   var STARTING_POINT_IDS = ['10228','10174','10215','10232','10231','10217','10227','10241','10001','10064','10002','10003','10130','10009','10161','10020','10135'];
+  // ---------- EDIT ME: cash-block riders endpoint ----------
+  // Replace with the real URL if the path is different in your environment.
+  var CASH_BLOCK_API = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/couriers/cash-blocked';
   var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
   var LS_PREFIX = 'tpl_idle_';
   var LATE_LS_PREFIX = 'tpl_lateactive_'; // marks a rider as "currently in a late episode" so repeated polls don't over-count
@@ -97,6 +100,8 @@
     .tpl-tag.late{background:rgba(227,71,71,.15);color:#e34747;}
     .tpl-tag.idle{background:rgba(224,167,44,.15);color:#e0a72c;}
     .tpl-tag.idle-mild{background:rgba(154,161,172,.15);color:#9aa1ac;}
+    .tpl-tag.cash-block{background:rgba(155,89,182,.15);color:#a855f7;}
+    .tpl-stat.cash-block .n{color:#a855f7;}
     .tpl-empty{color:#9aa1ac;font-size:13px;padding:20px;text-align:center;}
   `;
   document.head.appendChild(style);
@@ -137,6 +142,8 @@
             <button id="tpl-weeklyZeroExportBtn" class="tpl-btn secondary">Export Zero-Order Days</button>
             <button id="tpl-weeklyIdleBtn" class="tpl-btn secondary">Weekly Idle 4h+ Summary</button>
             <button id="tpl-weeklyIdleExportBtn" class="tpl-btn secondary">Export Idle 4h+ Days</button>
+            <button id="tpl-cashBlockBtn" class="tpl-btn secondary">Fetch Cash Block Riders</button>
+            <button id="tpl-cashBlockExportBtn" class="tpl-btn secondary" disabled>Export Cash Block Riders</button>
             <button id="tpl-resetBtn" class="tpl-btn secondary">Reset idle timers</button>
             <button id="tpl-resetFiltersBtn" class="tpl-btn secondary">Reset filters</button>
             <span id="tpl-status"></span>
@@ -150,6 +157,7 @@
           <button id="tpl-debugZonesBtn" class="tpl-btn secondary" style="padding:4px 10px;font-size:11px;">Show raw starting-point IDs (for zone mapping)</button>
           <div id="tpl-debugZones" style="display:none;flex-wrap:wrap;gap:8px;margin-top:10px;"></div>
         </div>
+        <div id="tpl-cashBlockResults"></div>
         <div id="tpl-weeklyLateResults"></div>
         <div id="tpl-results"></div>
       </div>
@@ -357,6 +365,7 @@
   }
 
   var lastFlagged = { late: [], idle: [] };
+  var cashBlockRiders = []; // riders fetched from the cash-block endpoint
 
   var lastAllRows = []; // every rider, normalized, for status-click filtering
   var currentRegistryDate = todayKey();
@@ -664,10 +673,15 @@
       return '<div class="tpl-stat tpl-clickable' + active + '" data-status="' + esc(st) + '"><div class="n">' + statusCounts[st] + '</div><div class="l">' + esc(STATUS_LABELS[st] || st) + '</div></div>';
     }).join('');
 
+    var cashBlockHtml = cashBlockRiders.length > 0
+      ? '<div class="tpl-stat cash-block" title="Click Fetch Cash Block Riders to refresh"><div class="n">' + cashBlockRiders.length + '</div><div class="l">\uD83D\uDD12 Cash Block</div></div>'
+      : '';
+
     statsRow.innerHTML =
       '<div class="tpl-stat tpl-clickable' + (activeFilter === '__all__' ? ' tpl-active' : '') + '" data-status="__all__"><div class="n">' + rows.length + '</div><div class="l">Total riders</div></div>' +
       statusStatsHtml +
-      '<div class="tpl-stat idle tpl-clickable' + (activeFilter === '__idle30__' ? ' tpl-active' : '') + '" data-status="__idle30__"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (any status)</div></div>';
+      '<div class="tpl-stat idle tpl-clickable' + (activeFilter === '__idle30__' ? ' tpl-active' : '') + '" data-status="__idle30__"><div class="n">' + idleFlaggedCount + '</div><div class="l">Idle 30m+ (any status)</div></div>' +
+      cashBlockHtml;
 
     Array.prototype.forEach.call(statsRow.querySelectorAll('.tpl-clickable'), function (el) {
       el.addEventListener('click', function () {
@@ -800,6 +814,111 @@
     sortDir = 'asc';
     renderAll();
   });
+
+  // ---------- cash-block riders fetch + render ----------
+  function renderCashBlockResults() {
+    var container = document.getElementById('tpl-cashBlockResults');
+    var exportBtn = document.getElementById('tpl-cashBlockExportBtn');
+    if (!container) return;
+    if (cashBlockRiders.length === 0) {
+      container.innerHTML = '';
+      if (exportBtn) exportBtn.disabled = true;
+      return;
+    }
+    if (exportBtn) exportBtn.disabled = false;
+    var groups = groupBy3PL(cashBlockRiders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }));
+    var html = '<div class="tpl-filter-bar"><strong style="color:#a855f7;">\u{1F512} Cash Block Riders</strong>' +
+      ' <span class="tpl-badge">' + cashBlockRiders.length + ' riders</span>' +
+      ' <button id="tpl-cashBlockClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>';
+    html += Object.keys(groups).sort().map(function (pl) {
+      var plRows = groups[pl];
+      var body = plRows.map(function (r) {
+        return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td>' +
+          '<td>' + esc(r.status) + '</td>' +
+          '<td>' + r.activeOrders + '</td>' +
+          '<td><span class="tpl-tag cash-block">Cash Block</span></td></tr>';
+      }).join('');
+      return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) +
+        ' <span class="tpl-badge">' + plRows.length + ' riders</span></h2>' +
+        '<table><thead><tr><th>Name</th><th>Phone</th><th>Zone</th><th>Status</th><th>Active Orders</th><th>Flag</th></tr></thead>' +
+        '<tbody>' + body + '</tbody></table></div>';
+    }).join('');
+    container.innerHTML = html;
+    var closeBtn = document.getElementById('tpl-cashBlockClose');
+    if (closeBtn) closeBtn.addEventListener('click', function () {
+      cashBlockRiders = [];
+      renderCashBlockResults();
+      renderAll(); // refresh stat cards too
+    });
+  }
+
+  function fetchCashBlockRiders() {
+    var statusLine = document.getElementById('tpl-status');
+    statusLine.textContent = 'Fetching cash block riders...';
+    var authToken = localStorage.getItem('token');
+    var fetchOpts = {
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    };
+    if (authToken) fetchOpts.headers['Authorization'] = 'Bearer ' + authToken;
+
+    // Fetch from all starting points (same approach as fetchLive) because the
+    // cash-block endpoint may also be scoped per starting point.
+    // If your API returns all cash-blocked riders in one call without a
+    // starting_point_id param, replace Promise.all(...) with a single fetch.
+    Promise.all(STARTING_POINT_IDS.map(function (spId) {
+      var url = CASH_BLOCK_API + '?starting_point_id=' + spId;
+      return fetch(url, fetchOpts)
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status + ' for SP ' + spId);
+          return res.json();
+        })
+        .then(function (data) {
+          // Normalise: accept { couriers: [...] } or bare array.
+          var list = Array.isArray(data.couriers) ? data.couriers :
+                     Array.isArray(data) ? data : [];
+          list.forEach(function (entry) { entry.__spId = spId; });
+          return list;
+        })
+        .catch(function (e) {
+          console.warn('3PL tool: cash-block fetch failed for SP', spId, e);
+          return [];
+        });
+    })).then(function (results) {
+      var all = [].concat.apply([], results);
+      // De-duplicate by courier id (a rider might appear in multiple SPs).
+      var seen = {};
+      var unique = all.filter(function (entry) {
+        var c = entry.courier || {};
+        if (c.id == null || seen[c.id]) return false;
+        seen[c.id] = true;
+        return true;
+      });
+      cashBlockRiders = unique.map(function (entry) {
+        var c = entry.courier || {};
+        return {
+          id: c.id,
+          name: c.name || '',
+          phone: c.phone_number || '',
+          contract: c.contract_name || 'Unknown 3PL',
+          status: c.status || '',
+          activeOrders: entry.active_delivery_count != null ? entry.active_delivery_count : 0,
+          zone: zoneNameFor(entry.__spId),
+          spId: entry.__spId
+        };
+      });
+      if (cashBlockRiders.length === 0) {
+        statusLine.textContent = 'Cash block fetch returned 0 riders \u2014 check the console for errors.';
+      } else {
+        statusLine.textContent = 'Fetched ' + cashBlockRiders.length + ' cash block riders at ' + new Date().toLocaleTimeString();
+      }
+      renderAll(); // refresh stat cards
+      renderCashBlockResults();
+    });
+  }
 
   function fetchLive() {
     var statusLine = document.getElementById('tpl-status');
@@ -1009,6 +1128,39 @@
     }
   });
   document.getElementById('tpl-fetchBtn').addEventListener('click', fetchLive);
+
+  document.getElementById('tpl-cashBlockBtn').addEventListener('click', fetchCashBlockRiders);
+
+  document.getElementById('tpl-cashBlockExportBtn').addEventListener('click', function () {
+    var statusLine = document.getElementById('tpl-status');
+    if (cashBlockRiders.length === 0) {
+      statusLine.textContent = 'No cash block riders fetched yet \u2014 click "Fetch Cash Block Riders" first.';
+      return;
+    }
+    xlsxReady.then(function () {
+      var wb = XLSX.utils.book_new();
+      var groups = groupBy3PL(cashBlockRiders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }));
+      Object.keys(groups).sort().forEach(function (pl) {
+        var plRows = groups[pl].map(function (r) {
+          return {
+            Name: r.name,
+            Phone: r.phone,
+            Zone: r.zone,
+            '3PL': r.contract,
+            Status: r.status,
+            'Active Orders': r.activeOrders
+          };
+        });
+        var ws = XLSX.utils.json_to_sheet(plRows);
+        var sheetName = pl.substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+        XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Sheet');
+      });
+      XLSX.writeFile(wb, '3PL_cash_block_riders_' + todayKey() + '_' + new Date().toISOString().slice(11, 16).replace(':', '-') + '.xlsx');
+      statusLine.textContent = 'Exported ' + cashBlockRiders.length + ' cash block riders across ' + Object.keys(groups).length + ' 3PLs.';
+    }).catch(function () {
+      statusLine.textContent = 'Could not load Excel export library.';
+    });
+  });
 
   document.getElementById('tpl-exportBtn').addEventListener('click', function () {
     xlsxReady.then(function () {
