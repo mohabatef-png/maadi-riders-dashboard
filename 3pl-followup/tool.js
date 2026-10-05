@@ -12,9 +12,14 @@
 
   var API_BASE = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/couriers?starting_point_id=';
   var STARTING_POINT_IDS = ['10228','10174','10215','10232','10231','10217','10227','10241','10001','10064','10002','10003','10130','10009','10161','10020','10135'];
-  // ---------- EDIT ME: cash-block riders endpoint ----------
-  // Replace with the real URL if the path is different in your environment.
-  var CASH_BLOCK_API = 'https://eg.me.logisticsbackoffice.com/api/dispatcher-dashboard/couriers/cash-blocked';
+  // ---------- cash-collection balance API ----------
+  // Fetches balance per courier: GET /api/cash-collection/v1/couriers/{id}/balance?courier_id={id}
+  // Response: { "balance": <piasters> }  e.g. 50178 = 501.78 EGP
+  var CASH_COLLECTION_BASE = 'https://eg.me.logisticsbackoffice.com/api/cash-collection/v1/couriers/';
+  var CASH_FETCH_CONCURRENCY = 8; // parallel balance requests
+  // Riders with balance (in piasters) ABOVE this are shown as cash-blocked.
+  // 3000 EGP = 300,000 piasters
+  var CASH_BLOCK_THRESHOLD_PIASTERS = 300000;
   var IDLE_THRESHOLD_MS = 30 * 60 * 1000;
   var LS_PREFIX = 'tpl_idle_';
   var LATE_LS_PREFIX = 'tpl_lateactive_'; // marks a rider as "currently in a late episode" so repeated polls don't over-count
@@ -365,7 +370,8 @@
   }
 
   var lastFlagged = { late: [], idle: [] };
-  var cashBlockRiders = []; // riders fetched from the cash-block endpoint
+  var cashBlockRiders = [];     // riders whose balance > CASH_BLOCK_THRESHOLD_PIASTERS
+  var cashBalanceCache = {};   // courierId -> balance in piasters (null = fetch failed)
 
   var lastAllRows = []; // every rider, normalized, for status-click filtering
   var currentRegistryDate = todayKey();
@@ -815,7 +821,15 @@
     renderAll();
   });
 
-  // ---------- cash-block riders fetch + render ----------
+  // ---------- cash-block riders: fetch balance per rider, flag those above threshold ----------
+
+  function fmtEGP(piasters) {
+    // Convert piasters (integer) to EGP string e.g. 50178 -> "501.78 EGP"
+    if (piasters == null) return '\u2014';
+    var egp = piasters / 100;
+    return egp.toLocaleString('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EGP';
+  }
+
   function renderCashBlockResults() {
     var container = document.getElementById('tpl-cashBlockResults');
     var exportBtn = document.getElementById('tpl-cashBlockExportBtn');
@@ -826,96 +840,116 @@
       return;
     }
     if (exportBtn) exportBtn.disabled = false;
-    var groups = groupBy3PL(cashBlockRiders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }));
-    var html = '<div class="tpl-filter-bar"><strong style="color:#a855f7;">\u{1F512} Cash Block Riders</strong>' +
+
+    // Sort highest balance first within each group
+    var sorted = cashBlockRiders.slice().sort(function (a, b) { return b.cashBalance - a.cashBalance; });
+    var groups = groupBy3PL(sorted);
+    var totalBal = cashBlockRiders.reduce(function (s, r) { return s + (r.cashBalance || 0); }, 0);
+
+    var html = '<div class="tpl-filter-bar">' +
+      '<strong style="color:#a855f7;">\uD83D\uDD12 Cash Block Riders</strong>' +
       ' <span class="tpl-badge">' + cashBlockRiders.length + ' riders</span>' +
+      ' <span class="tpl-badge">Total: ' + fmtEGP(totalBal) + '</span>' +
       ' <button id="tpl-cashBlockClose" class="tpl-btn secondary" style="padding:3px 10px;font-size:11px;">Close</button></div>';
+
     html += Object.keys(groups).sort().map(function (pl) {
       var plRows = groups[pl];
+      var plTotal = plRows.reduce(function (s, r) { return s + (r.cashBalance || 0); }, 0);
       var body = plRows.map(function (r) {
-        return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.phone) + '</td><td>' + esc(r.zone) + '</td>' +
+        return '<tr>' +
+          '<td>' + esc(r.name) + '</td>' +
+          '<td>' + esc(r.phone) + '</td>' +
+          '<td>' + esc(r.zone) + '</td>' +
           '<td>' + esc(r.status) + '</td>' +
           '<td>' + r.activeOrders + '</td>' +
-          '<td><span class="tpl-tag cash-block">Cash Block</span></td></tr>';
+          '<td style="font-weight:700;color:#a855f7;">' + fmtEGP(r.cashBalance) + '</td>' +
+          '<td><span class="tpl-tag cash-block">Cash Block</span></td>' +
+          '</tr>';
       }).join('');
-      return '<div class="tpl-panelbox tpl-group"><h2>' + esc(pl) +
-        ' <span class="tpl-badge">' + plRows.length + ' riders</span></h2>' +
-        '<table><thead><tr><th>Name</th><th>Phone</th><th>Zone</th><th>Status</th><th>Active Orders</th><th>Flag</th></tr></thead>' +
-        '<tbody>' + body + '</tbody></table></div>';
+      return '<div class="tpl-panelbox tpl-group">' +
+        '<h2>' + esc(pl) +
+        ' <span class="tpl-badge">' + plRows.length + ' riders</span>' +
+        ' <span class="tpl-badge">Total: ' + fmtEGP(plTotal) + '</span></h2>' +
+        '<table><thead><tr>' +
+        '<th>Name</th><th>Phone</th><th>Zone</th><th>Status</th><th>Active Orders</th><th>Balance</th><th>Flag</th>' +
+        '</tr></thead><tbody>' + body + '</tbody></table></div>';
     }).join('');
+
     container.innerHTML = html;
     var closeBtn = document.getElementById('tpl-cashBlockClose');
     if (closeBtn) closeBtn.addEventListener('click', function () {
       cashBlockRiders = [];
+      cashBalanceCache = {};
       renderCashBlockResults();
-      renderAll(); // refresh stat cards too
+      renderAll();
     });
   }
 
   function fetchCashBlockRiders() {
     var statusLine = document.getElementById('tpl-status');
-    statusLine.textContent = 'Fetching cash block riders...';
-    var authToken = localStorage.getItem('token');
-    var fetchOpts = {
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'X-Requested-With': 'XMLHttpRequest'
-      }
-    };
-    if (authToken) fetchOpts.headers['Authorization'] = 'Bearer ' + authToken;
+    // Need live riders loaded first
+    var ids = [];
+    lastAllRows.forEach(function (r) { if (ids.indexOf(r.id) === -1) ids.push(r.id); });
+    if (ids.length === 0) {
+      statusLine.textContent = 'No riders loaded \u2014 click "Fetch Live Data" first.';
+      return;
+    }
 
-    // Fetch from all starting points (same approach as fetchLive) because the
-    // cash-block endpoint may also be scoped per starting point.
-    // If your API returns all cash-blocked riders in one call without a
-    // starting_point_id param, replace Promise.all(...) with a single fetch.
-    Promise.all(STARTING_POINT_IDS.map(function (spId) {
-      var url = CASH_BLOCK_API + '?starting_point_id=' + spId;
-      return fetch(url, fetchOpts)
-        .then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status + ' for SP ' + spId);
-          return res.json();
-        })
-        .then(function (data) {
-          // Normalise: accept { couriers: [...] } or bare array.
-          var list = Array.isArray(data.couriers) ? data.couriers :
-                     Array.isArray(data) ? data : [];
-          list.forEach(function (entry) { entry.__spId = spId; });
-          return list;
-        })
-        .catch(function (e) {
-          console.warn('3PL tool: cash-block fetch failed for SP', spId, e);
-          return [];
+    var authToken = localStorage.getItem('token');
+    var baseOpts = {
+      credentials: 'include',
+      headers: { 'Accept': 'application/json, text/plain, */*', 'X-Requested-With': 'XMLHttpRequest' }
+    };
+    if (authToken) baseOpts.headers['Authorization'] = 'Bearer ' + authToken;
+
+    statusLine.textContent = 'Fetching cash balance for ' + ids.length + ' riders (0/' + ids.length + ')...';
+
+    // Concurrency pool — same pattern as fetchFlowForIds
+    var queue = ids.slice();
+    var total = queue.length;
+    var done = 0;
+
+    function worker() {
+      var id = queue.shift();
+      if (id === undefined) return Promise.resolve();
+      var url = CASH_COLLECTION_BASE + id + '/balance?courier_id=' + id;
+      return fetch(url, baseOpts)
+        .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+        .then(function (data) { cashBalanceCache[id] = data.balance != null ? data.balance : 0; })
+        .catch(function () { cashBalanceCache[id] = null; /* null = failed, don't treat as blocked */ })
+        .then(function () {
+          done++;
+          if (done % 10 === 0 || done === total) {
+            statusLine.textContent = 'Fetching cash balance (' + done + '/' + total + ')...';
+          }
+          return worker();
         });
-    })).then(function (results) {
-      var all = [].concat.apply([], results);
-      // De-duplicate by courier id (a rider might appear in multiple SPs).
+    }
+
+    var workers = [];
+    for (var i = 0; i < Math.min(CASH_FETCH_CONCURRENCY, total || 1); i++) workers.push(worker());
+
+    Promise.all(workers).then(function () {
+      // Build cashBlockRiders: unique riders with balance above threshold
       var seen = {};
-      var unique = all.filter(function (entry) {
-        var c = entry.courier || {};
-        if (c.id == null || seen[c.id]) return false;
-        seen[c.id] = true;
+      cashBlockRiders = lastAllRows.filter(function (r) {
+        var bal = cashBalanceCache[r.id];
+        if (bal == null || bal <= CASH_BLOCK_THRESHOLD_PIASTERS) return false;
+        if (seen[r.id]) return false;
+        seen[r.id] = true;
         return true;
+      }).map(function (r) {
+        return Object.assign({}, r, { cashBalance: cashBalanceCache[r.id] });
       });
-      cashBlockRiders = unique.map(function (entry) {
-        var c = entry.courier || {};
-        return {
-          id: c.id,
-          name: c.name || '',
-          phone: c.phone_number || '',
-          contract: c.contract_name || 'Unknown 3PL',
-          status: c.status || '',
-          activeOrders: entry.active_delivery_count != null ? entry.active_delivery_count : 0,
-          zone: zoneNameFor(entry.__spId),
-          spId: entry.__spId
-        };
-      });
-      if (cashBlockRiders.length === 0) {
-        statusLine.textContent = 'Cash block fetch returned 0 riders \u2014 check the console for errors.';
-      } else {
-        statusLine.textContent = 'Fetched ' + cashBlockRiders.length + ' cash block riders at ' + new Date().toLocaleTimeString();
-      }
-      renderAll(); // refresh stat cards
+
+      var fetched = Object.keys(cashBalanceCache).length;
+      var failed = Object.keys(cashBalanceCache).filter(function (id) { return cashBalanceCache[id] === null; }).length;
+      statusLine.textContent = 'Balance fetched: ' + fetched + ' riders, ' +
+        cashBlockRiders.length + ' cash-blocked' +
+        (failed > 0 ? ' (' + failed + ' failed)' : '') +
+        ' \u2014 ' + new Date().toLocaleTimeString();
+
+      renderAll();
       renderCashBlockResults();
     });
   }
@@ -1139,7 +1173,7 @@
     }
     xlsxReady.then(function () {
       var wb = XLSX.utils.book_new();
-      var groups = groupBy3PL(cashBlockRiders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }));
+      var groups = groupBy3PL(cashBlockRiders.slice().sort(function (a, b) { return b.cashBalance - a.cashBalance; }));
       Object.keys(groups).sort().forEach(function (pl) {
         var plRows = groups[pl].map(function (r) {
           return {
@@ -1148,7 +1182,8 @@
             Zone: r.zone,
             '3PL': r.contract,
             Status: r.status,
-            'Active Orders': r.activeOrders
+            'Active Orders': r.activeOrders,
+            'Balance (EGP)': r.cashBalance != null ? (r.cashBalance / 100).toFixed(2) : ''
           };
         });
         var ws = XLSX.utils.json_to_sheet(plRows);
